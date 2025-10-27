@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  database-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: database-ii-project
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./gui:/app/gui
+      - ./sql_parser:/app/sql_parser
+      - ./indexes:/app/indexes
+    environment:
+      - PYTHONUNBUFFERED=1
+    restart: unless-stopped

@@ -1,0 +1,50 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info
+dist/
+build/
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Documentation
+docs/
+*.md
+README.md
+
+# Archivos temporales
+*.log
+*.tmp
+*.bak
+
+# Resultados de experimentos opcionales (descomenta si no quieres copiarlos)
+# experiments/results/
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose.yml
