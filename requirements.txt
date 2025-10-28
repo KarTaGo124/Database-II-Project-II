@@ -1,3 +1,10 @@
 lark
 rtree
 streamlit
+nltk
+scikit-learn
+opencv-python
+librosa
+numpy
+scipy
+pillow

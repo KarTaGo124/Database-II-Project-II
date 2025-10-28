@@ -16,7 +16,14 @@ class DatabaseManager:
         "ISAM": {"primary": True, "secondary": False},
         "BTREE": {"primary": True, "secondary": True},
         "HASH": {"primary": False, "secondary": True},
-        "RTREE": {"primary": False, "secondary": True}
+        "RTREE": {"primary": False, "secondary": True},
+        "INVERTED_TEXT": {"primary": False, "secondary": True},
+        "MULTIMEDIA": {"primary": False, "secondary": True}
+    }
+
+    MULTIMEDIA_FEATURES = {
+        'image': ['SIFT'],
+        'audio': ['MFCC']
     }
 
     def __init__(self, database_name: str = None, base_path: str = None):
@@ -1045,3 +1052,30 @@ class DatabaseManager:
                     continue
         except Exception:
             pass
+
+    def _get_multimedia_files_dir(self, table_name: str, field_name: str) -> str:
+        pass
+
+    def _save_multimedia_file(self, table_name: str, field_name: str, filename: str, file_data: bytes):
+        pass
+
+    def _get_multimedia_file_path(self, table_name: str, field_name: str, filename: str) -> str:
+        pass
+
+    def create_fulltext_index(self, table_name: str, field_name: str, index_name: str = "fulltext"):
+        pass
+
+    def search_fulltext(self, table_name: str, query: str, top_k: int = 10, index_name: str = "fulltext"):
+        pass
+
+    def drop_fulltext_index(self, table_name: str, index_name: str = "fulltext"):
+        pass
+
+    def create_multimedia_index(self, table_name: str, field_name: str, feature_type: str, n_clusters: int = 100):
+        pass
+
+    def search_multimedia(self, table_name: str, field_name: str, query_filename: str, top_k: int = 8, method: str = "INVERTED"):
+        pass
+
+    def drop_multimedia_index(self, table_name: str, field_name: str):
+        pass
