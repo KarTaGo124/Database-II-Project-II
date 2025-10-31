@@ -20,10 +20,18 @@ class SPIMIBuilder:
         pass
 
     def _create_block(self, block_data: Dict) -> str:
-        pass
+        filename = f"block_{self.block_counter:06d}.pkl"
+        block_file = os.path.join(self.temp_dir, filename)
+
+        serializable_block = {term: sorted(list(postings)) for term, postings in block_data.items()}
+        self._write_block_to_disk(serializable_block, block_file)
+
+        self.block_counter += 1
+        return block_file
 
     def _write_block_to_disk(self, block_data: Dict, block_file: str):
-        pass
+        with open(block_file, "wb") as f:
+            pickle.dump(block_data, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     def _get_block_size_mb(self, block_data: Dict) -> float:
         pass
