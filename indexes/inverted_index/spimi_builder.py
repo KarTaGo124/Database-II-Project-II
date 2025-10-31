@@ -34,13 +34,28 @@ class SPIMIBuilder:
             pickle.dump(block_data, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     def _get_block_size_mb(self, block_data: Dict) -> float:
-        pass
+        temp_serializable = {k: list(v) for k, v in block_data.items()}
+        data_bytes = pickle.dumps(temp_serializable, protocol=pickle.HIGHEST_PROTOCOL)
+        size_mb = len(data_bytes) / (1024 * 1024)
+        return size_mb
 
     def merge_blocks(self, block_files: List[str], output_file: str):
         pass
 
     def _open_all_blocks(self, block_files: List[str]) -> List:
-        pass
+        blocks = []
+        for bf in block_files:
+            with open(bf, "rb") as f:
+                data: Dict[str, List[int]] = pickle.load(f)
+            terms_sorted = sorted(data.keys())
+            blocks.append({
+                "terms": terms_sorted,
+                "postings": data,
+                "idx": 0,
+                "path": bf,
+                "fileobj": None
+            })
+        return blocks
 
     def _merge_with_buffers(self, block_iterators: List, output_file: str):
         pass
