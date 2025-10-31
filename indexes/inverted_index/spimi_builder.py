@@ -10,9 +10,11 @@ class SPIMIBuilder:
         self.temp_dir = temp_dir
         self.preprocessor = TextPreprocessor()
         self.block_counter = 0
+        os.makedirs(self.temp_dir, exist_ok=True)
 
     def build_index(self, documents: Iterator, field_name: str):
-        pass
+        block_files = self._process_documents_in_blocks(documents, field_name)
+        return block_files
 
     def _process_documents_in_blocks(self, documents: Iterator, field_name: str):
         pass
@@ -36,7 +38,23 @@ class SPIMIBuilder:
         pass
 
     def _get_next_term(self, iterators: List) -> str:
-        pass
+        min_term = None
+        for blk in iterators:
+            idx = blk["idx"]
+            terms = blk["terms"]
+            if idx < len(terms):
+                term = terms[idx]
+                if min_term is None or term < min_term:
+                    min_term = term
+        return min_term
 
     def _cleanup_temp_files(self):
-        pass
+        try:
+            for fname in os.listdir(self.temp_dir):
+                path = os.path.join(self.temp_dir, fname)
+                try:
+                    os.remove(path)
+                except Exception:
+                    pass
+        except FileNotFoundError:
+            pass
