@@ -1,10 +1,13 @@
 import os
 import pickle
+import struct
 from typing import List, Dict, Iterator
 from .text_preprocessor import TextPreprocessor
 
-class SPIMIBuilder:
+B = 10 #number of buffers
 
+class SPIMIBuilder:
+    TERM_STRUCT = 'ii'
     def __init__(self, block_size_mb: int = 50, temp_dir: str = "data/temp_blocks"):
         self.block_size_mb = block_size_mb
         self.temp_dir = temp_dir
@@ -12,12 +15,43 @@ class SPIMIBuilder:
         self.block_counter = 0
         os.makedirs(self.temp_dir, exist_ok=True)
 
-    def build_index(self, documents: Iterator, field_name: str):
-        block_files = self._process_documents_in_blocks(documents, field_name)
-        return block_files
+    def build_index(self, documents: Iterator, field_name: str, output_file: str):
+        try:
+            block_files = self._process_documents_in_blocks(documents, field_name)
+            if not block_files:
+                return None
+
+            self.merge_blocks(block_files, output_file)
+            return output_file
+        finally:
+            self._cleanup_temp_files()
 
     def _process_documents_in_blocks(self, documents: Iterator, field_name: str):
-        pass
+        block_data = {} #dict
+        block_files = [] #list of blocks
+
+        for doc_id, doc in documents:
+            text = doc.get(field_name) #get text document based on the field name where it actually is
+            if not text:
+                continue
+
+            tokens = self.preprocessor.preprocess(text) #all the preprocessing
+
+            for token in tokens: #add al tokens
+                if token not in block_data:
+                    block_data[token] = set() #if not token in dic, create it
+                block_data[token].add(doc_id) #add doc id in token
+
+            if self._get_block_size_mb(block_data) >= self.block_size_mb: #check for size after entering whole document in a block
+                block_file = self._create_block(block_data) #dump block
+                block_files.append(block_file)
+                block_data = {}
+
+        if block_data:
+            block_file = self._create_block(block_data)
+            block_files.append(block_file)
+
+        return block_files
 
     def _create_block(self, block_data: Dict) -> str:
         filename = f"block_{self.block_counter:06d}.pkl"
