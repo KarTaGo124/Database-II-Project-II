@@ -37,10 +37,10 @@ class SPIMIBuilder:
 
             tokens = self.preprocessor.preprocess(text) #all the preprocessing
 
-            for token in tokens: #add al tokens
+            for token in tokens: #add all tokens
                 if token not in block_data:
-                    block_data[token] = set() #if not token in dic, create it
-                block_data[token].add(doc_id) #add doc id in token
+                    block_data[token] = [] #if not token in dic, create it
+                block_data[token].append(doc_id) #add doc id in token
 
             if self._get_block_size_mb(block_data) >= self.block_size_mb: #check for size after entering whole document in a block
                 block_file = self._create_block(block_data) #dump block
@@ -57,7 +57,7 @@ class SPIMIBuilder:
         filename = f"block_{self.block_counter:06d}.pkl"
         block_file = os.path.join(self.temp_dir, filename)
 
-        serializable_block = {term: sorted(list(postings)) for term, postings in block_data.items()}
+        serializable_block = {term: block_data[term] for term in sorted(block_data.keys())}
         self._write_block_to_disk(serializable_block, block_file)
 
         self.block_counter += 1
