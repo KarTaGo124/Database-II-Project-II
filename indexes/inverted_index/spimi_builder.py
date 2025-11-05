@@ -1,10 +1,10 @@
 import os
 import pickle
 import struct
+import sys
+import heapq
 from typing import List, Dict, Iterator
 from .text_preprocessor import TextPreprocessor
-
-B = 10 #number of buffers
 
 class SPIMIBuilder:
     TERM_STRUCT = 'ii'
@@ -29,6 +29,9 @@ class SPIMIBuilder:
     def _process_documents_in_blocks(self, documents: Iterator, field_name: str):
         block_data = {} #dict
         block_files = [] #list of blocks
+        current_size_in_bytes = 0
+        # Convert block_size_mb to bytes
+        block_size_bytes = self.block_size_mb * 1024 * 1024
 
         for doc_id, doc in documents:
             text = doc.get(field_name) #get text document based on the field name where it actually is
@@ -40,12 +43,16 @@ class SPIMIBuilder:
             for token in tokens: #add all tokens
                 if token not in block_data:
                     block_data[token] = [] #if not token in dic, create it
+                    current_size_in_bytes += len(token)
                 block_data[token].append(doc_id) #add doc id in token
+                current_size_in_bytes += 4 # Assuming 4 bytes per doc_id as per user's instruction
 
-            if self._get_block_size_mb(block_data) >= self.block_size_mb: #check for size after entering whole document in a block
-                block_file = self._create_block(block_data) #dump block
-                block_files.append(block_file)
-                block_data = {}
+                # Check block size after adding each token
+                if current_size_in_bytes >= block_size_bytes:
+                    block_file = self._create_block(block_data) #dump block
+                    block_files.append(block_file)
+                    block_data = {} #reset block_data for the next block
+                    current_size_in_bytes = 0 #reset size counter
 
         if block_data:
             block_file = self._create_block(block_data)
@@ -67,14 +74,11 @@ class SPIMIBuilder:
         with open(block_file, "wb") as f:
             pickle.dump(block_data, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    def _get_block_size_mb(self, block_data: Dict) -> float:
-        temp_serializable = {k: list(v) for k, v in block_data.items()}
-        data_bytes = pickle.dumps(temp_serializable, protocol=pickle.HIGHEST_PROTOCOL)
-        size_mb = len(data_bytes) / (1024 * 1024)
-        return size_mb
-
     def merge_blocks(self, block_files: List[str], output_file: str):
-        pass
+        if not block_files:
+            return
+        block_iterators = self._open_all_blocks(block_files)
+        self._merge_with_buffers(block_iterators, output_file)
 
     def _open_all_blocks(self, block_files: List[str]) -> List:
         blocks = []
