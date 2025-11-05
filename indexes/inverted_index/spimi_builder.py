@@ -1,13 +1,11 @@
 import os
 import pickle
 import struct
-import sys
 import heapq
 from typing import List, Dict, Iterator
 from .text_preprocessor import TextPreprocessor
 
 class SPIMIBuilder:
-    TERM_STRUCT = 'ii'
     def __init__(self, block_size_mb: int = 50, temp_dir: str = "data/temp_blocks"):
         self.block_size_mb = block_size_mb
         self.temp_dir = temp_dir
@@ -54,7 +52,7 @@ class SPIMIBuilder:
                     block_data = {} #reset block_data for the next block
                     current_size_in_bytes = 0 #reset size counter
 
-        if block_data:
+        if block_data: #leftover block
             block_file = self._create_block(block_data)
             block_files.append(block_file)
 
@@ -72,7 +70,15 @@ class SPIMIBuilder:
 
     def _write_block_to_disk(self, block_data: Dict, block_file: str):
         with open(block_file, "wb") as f:
-            pickle.dump(block_data, f, protocol=pickle.HIGHEST_PROTOCOL)
+            for term, postings in block_data.items():
+                term_bytes = term.encode('utf-8')
+                postings_bytes = pickle.dumps(postings, protocol=pickle.HIGHEST_PROTOCOL)
+
+                # write term length, term, postings length, postings
+                f.write(struct.pack('I', len(term_bytes)))
+                f.write(term_bytes)
+                f.write(struct.pack('I', len(postings_bytes)))
+                f.write(postings_bytes)
 
     def merge_blocks(self, block_files: List[str], output_file: str):
         if not block_files:
@@ -81,19 +87,45 @@ class SPIMIBuilder:
         self._merge_with_buffers(block_iterators, output_file)
 
     def _open_all_blocks(self, block_files: List[str]) -> List:
-        blocks = []
+        block_readers = []
         for bf in block_files:
-            with open(bf, "rb") as f:
-                data: Dict[str, List[int]] = pickle.load(f)
-            terms_sorted = sorted(data.keys())
-            blocks.append({
-                "terms": terms_sorted,
-                "postings": data,
-                "idx": 0,
-                "path": bf,
-                "fileobj": None
-            })
-        return blocks
+            f = open(bf, "rb")
+            reader = {
+                "file_handle": f,
+                "iterator": self._read_block_terms(f),
+                "current_term": None,
+                "current_postings": None,
+                "has_next": True
+            }
+
+            try: #assign first element to each reader
+                reader["current_term"], reader["current_postings"] = next(reader["iterator"])
+            except StopIteration: #else block empty dont crash
+                reader["has_next"] = False #no next
+                f.close()
+            
+            if reader["has_next"]:#if next, append to block readers, only blocks not empty
+                block_readers.append(reader)
+
+        return block_readers
+
+    def _read_block_terms(self, file_handle): #generator function, continous streaming througt the programs execution!!!
+        while True:
+            try:
+                term_len_bytes = file_handle.read(4)
+                if not term_len_bytes:
+                    break
+                term_len = struct.unpack('I', term_len_bytes)[0]
+                term = file_handle.read(term_len).decode('utf-8')
+
+                postings_len_bytes = file_handle.read(4)
+                postings_len = struct.unpack('I', postings_len_bytes)[0]
+                postings_bytes = file_handle.read(postings_len)
+                postings = pickle.loads(postings_bytes)
+
+                yield term, postings #return term posting, but function doesnt end, next time we call next() it will continue and give the next pair
+            except (struct.error, EOFError):
+                break
 
     def _merge_with_buffers(self, block_iterators: List, output_file: str):
         pass
