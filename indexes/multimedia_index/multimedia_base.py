@@ -1,6 +1,9 @@
 import os
 import numpy as np
 from typing import List
+import cv2
+import librosa
+
 
 class MultimediaIndexBase:
 
@@ -37,19 +40,48 @@ class MultimediaIndexBase:
         self._load_codebook_if_exists()
 
     def _validate_feature_type(self):
-        pass
+        media_type = None
+        for mtype, extractors in self.FEATURE_EXTRACTORS.items():
+            if self.feature_type in extractors:
+                media_type = mtype
+                break
+        if media_type is None:
+            raise ValueError(f"Feature type '{self.feature_type}' not supported")
 
     def _detect_media_type(self, filename: str) -> str:
-        pass
+        ext = os.path.splitext(filename)[1].lower()
+        if ext in self.IMAGE_EXTENSIONS:
+            return 'image'
+        elif ext in self.AUDIO_EXTENSIONS:
+            return 'audio'
+        else:
+            raise ValueError(f"Unknown media type for extension: {ext}")
 
     def get_file_path(self, filename: str) -> str:
-        pass
+        return os.path.join(self.files_dir, filename)
 
     def _get_features_save_path(self, filename: str) -> str:
-        pass
+        base_name = os.path.splitext(filename)[0]
+        feature_file = f"{base_name}_{self.feature_type}.npy"
+        return os.path.join(self.features_dir, feature_file)
 
     def extract_features(self, filename: str, use_saved: bool = True) -> np.ndarray:
-        pass
+        features_path = self._get_features_save_path(filename)
+        
+        if use_saved and os.path.exists(features_path):
+            return np.load(features_path)
+        
+        file_path = self.get_file_path(filename)
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+        
+        media_type = self._detect_media_type(filename)
+        extractor_name = self.FEATURE_EXTRACTORS[media_type][self.feature_type]
+        extractor_method = getattr(self, extractor_name)
+        features = extractor_method(file_path)
+        
+        np.save(features_path, features)
+        return features
 
     def build_codebook(self, filenames: List[str]):
         pass
@@ -61,10 +93,24 @@ class MultimediaIndexBase:
         pass
 
     def _extract_sift(self, image_path: str) -> np.ndarray:
-        pass
+        img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            raise ValueError(f"Cannot read image: {image_path}")
+        sift = cv2.SIFT_create()
+        keypoints, descriptors = sift.detectAndCompute(img, None)
+        if descriptors is None or len(descriptors) == 0:
+            raise ValueError(f"No SIFT features detected in: {image_path}")
+        return descriptors.astype(np.float32)
 
     def _extract_mfcc(self, audio_path: str) -> np.ndarray:
-        pass
+        y, sr = librosa.load(audio_path, sr=None)
+        if len(y) == 0:
+            raise ValueError(f"Cannot read audio: {audio_path}")
+        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13)
+        mfcc = mfcc.T
+        if mfcc.shape[0] == 0:
+            raise ValueError(f"No MFCC features extracted from: {audio_path}")
+        return mfcc.astype(np.float32)
 
     def _save_codebook(self):
         pass
