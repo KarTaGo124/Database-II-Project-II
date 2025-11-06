@@ -2,10 +2,13 @@ import os
 import pickle
 import numpy as np
 import time
+import json
+import heapq
 from typing import List, Dict, Tuple
 from ..core.performance_tracker import OperationResult
 from .text_preprocessor import TextPreprocessor
 from .spimi_builder import SPIMIBuilder
+import struct
 
 class InvertedTextIndex:
 
@@ -28,10 +31,33 @@ class InvertedTextIndex:
         self._load_if_exists()
 
     def build(self, records):
-        pass
+
+        records_list = list(records) if not isinstance(records, list) else records
+        self.num_documents = len(records_list)
+        
+        self._build_with_spimi(records_list)
+        
+        self._calculate_document_norms()
+        
+        self._persist()
+        
+        
 
     def _build_with_spimi(self, records):
-        pass
+
+        temp_dir = os.path.join(self.index_dir, "temp_blocks")
+        spimi = SPIMIBuilder(block_size_mb=50, temp_dir=temp_dir)
+        
+        def doc_generator():
+            for record in records:
+                doc_id = record.get('id') or record.get('__id__')
+                if doc_id is not None:
+                    yield (doc_id, record)
+        
+        output_file = os.path.join(self.index_dir, "postings.dat")
+        spimi.build_index(doc_generator(), self.field_name, output_file)
+        
+        self._calculate_tf_idf()
 
     def _calculate_tf_idf(self):
         pass
@@ -46,7 +72,7 @@ class InvertedTextIndex:
         pass
 
     def _preprocess_query(self, query: str) -> List[str]:
-        pass
+        return self.preprocessor.preprocess(query)
 
     def _build_query_vector(self, query_terms: List[str]) -> Dict[str, float]:
         pass
