@@ -40,8 +40,6 @@ class InvertedTextIndex:
         self._calculate_document_norms()
         
         self._persist()
-        
-        
 
     def _build_with_spimi(self, records):
 
@@ -88,16 +86,65 @@ class InvertedTextIndex:
         pass
 
     def _persist(self):
-        pass
+
+        os.makedirs(self.index_dir, exist_ok=True)
+        
+        with open(self.vocabulary_file, 'wb') as f:
+            pickle.dump(self.vocabulary, f)
+        
+        with open(self.doc_norms_file, 'wb') as f:
+            pickle.dump(self.doc_norms, f)
+        
+        idf_file = os.path.join(self.index_dir, 'idf.dat')
+        with open(idf_file, 'wb') as f:
+            pickle.dump(self.idf, f)
+        
+        self._save_metadata()
 
     def _load_if_exists(self):
-        pass
+
+        #  vocabulario 
+        if os.path.exists(self.vocabulary_file):
+            with open(self.vocabulary_file, 'rb') as f:
+                self.vocabulary = pickle.load(f)
+        
+        #  normas de documentos
+        if os.path.exists(self.doc_norms_file):
+            with open(self.doc_norms_file, 'rb') as f:
+                self.doc_norms = pickle.load(f)
+        
+        # IDF
+        idf_file = os.path.join(self.index_dir, 'idf.dat')
+        if os.path.exists(idf_file):
+            with open(idf_file, 'rb') as f:
+                self.idf = pickle.load(f)
+        
+        # metadata
+        self._load_metadata()
 
     def _save_metadata(self):
-        pass
+
+        os.makedirs(self.index_dir, exist_ok=True)
+        metadata = {
+            'field_name': self.field_name,
+            'num_documents': self.num_documents,
+            'vocabulary_size': len(self.vocabulary),
+            'timestamp': int(time.time())
+        }
+        with open(self.metadata_file, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
+
 
     def _load_metadata(self):
-        pass
+
+        if not os.path.exists(self.metadata_file):
+            return
+        
+        with open(self.metadata_file, 'r', encoding='utf-8') as f:
+            metadata = json.load(f)
+        
+        self.field_name = metadata.get('field_name', self.field_name)
+        self.num_documents = metadata.get('num_documents', 0)
 
     def _read_postings_list(self, term: str):
         pass
