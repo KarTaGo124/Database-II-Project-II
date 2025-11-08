@@ -149,13 +149,27 @@ class MultimediaIndexBase:
         return mfcc.astype(np.float32)
 
     def _save_codebook(self):
-        pass
+        if self.codebook is not None:
+            np.save(self.codebook_file, self.codebook)
 
     def _load_codebook_if_exists(self):
-        pass
+        if os.path.exists(self.codebook_file):
+            self.codebook = np.load(self.codebook_file)
+            self._load_metadata()
 
     def _save_metadata(self):
-        pass
+        metadata = {
+            'n_clusters': self.n_clusters,
+            'feature_type': self.feature_type,
+            'field_name': self.field_name
+        }
+        with open(self.metadata_file, 'w') as f:
+            json.dump(metadata, f)
 
     def _load_metadata(self):
-        pass
+        if os.path.exists(self.metadata_file):
+            with open(self.metadata_file, 'r') as f:
+                metadata = json.load(f)
+            self.n_clusters = metadata.get('n_clusters', self.n_clusters)
+            self.feature_type = metadata.get('feature_type', self.feature_type)
+            self.field_name = metadata.get('field_name', self.field_name)
