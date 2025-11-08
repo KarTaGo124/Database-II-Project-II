@@ -115,7 +115,18 @@ class MultimediaIndexBase:
         return histogram
     
     def calculate_idf(self, all_histograms: dict):
-        pass
+        n_docs = len(all_histograms)
+        doc_freq = np.zeros(self.n_clusters)
+
+        for histogram in all_histograms.values():
+            doc_freq += (histogram > 0).astype(int)
+
+        self.idf = {}
+        for i in range(self.n_clusters):
+            if doc_freq[i] > 0:
+                self.idf[i] = np.log(n_docs / doc_freq[i])
+            else:
+                self.idf[i] = 0
 
     def _extract_sift(self, image_path: str) -> np.ndarray:
         img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
