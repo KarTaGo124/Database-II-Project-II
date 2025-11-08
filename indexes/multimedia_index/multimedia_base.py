@@ -1,9 +1,10 @@
 import os
 import numpy as np
+import json
 from typing import List
 import cv2
 import librosa
-
+from sklearn.cluster import KMeans
 
 class MultimediaIndexBase:
 
@@ -84,11 +85,35 @@ class MultimediaIndexBase:
         return features
 
     def build_codebook(self, filenames: List[str]):
-        pass
+        all_descriptors = []
+        for filename in filenames:
+            features = self.extract_features(filename)
+            all_descriptors.append(features)
+
+        all_descriptors = np.vstack(all_descriptors)
+
+        kmeans = KMeans(n_clusters=self.n_clusters, random_state=42, n_init=10)
+        kmeans.fit(all_descriptors)
+
+        self.codebook = kmeans.cluster_centers_
+        self._save_codebook()
+        self._save_metadata()
 
     def build_histogram(self, filename: str) -> np.ndarray:
-        pass
+        if self.codebook is None:
+            raise ValueError("Codebook not built yet. Call build_codebook first.")
 
+        features = self.extract_features(filename)
+
+        histogram = np.zeros(self.n_clusters, dtype=np.float32)
+
+        for descriptor in features:
+            distances = np.linalg.norm(self.codebook - descriptor, axis=1)
+            closest_codeword = np.argmin(distances)
+            histogram[closest_codeword] += 1
+
+        return histogram
+    
     def calculate_idf(self, all_histograms: dict):
         pass
 
