@@ -5,6 +5,7 @@ from typing import List
 import cv2
 import librosa
 from sklearn.cluster import KMeans
+from multiprocessing import Pool
 
 class MultimediaIndexBase:
 
@@ -84,11 +85,21 @@ class MultimediaIndexBase:
         np.save(features_path, features)
         return features
 
-    def build_codebook(self, filenames: List[str]):
-        all_descriptors = []
-        for filename in filenames:
-            features = self.extract_features(filename)
-            all_descriptors.append(features)
+    def build_codebook(self, filenames: List[str], n_workers: int = 4):
+        def extract_one(filename):
+            try:
+                return self.extract_features(filename)
+            except Exception as e:
+                print(f"Error extracting features from {filename}: {e}")
+                return None
+
+        with Pool(processes=n_workers) as pool:
+            all_descriptors = pool.map(extract_one, filenames)
+
+        all_descriptors = [d for d in all_descriptors if d is not None and len(d) > 0]
+
+        if len(all_descriptors) == 0:
+            raise ValueError("No se pudieron extraer descriptores de ningún archivo")
 
         all_descriptors = np.vstack(all_descriptors)
 
@@ -98,6 +109,7 @@ class MultimediaIndexBase:
         self.codebook = kmeans.cluster_centers_
         self._save_codebook()
         self._save_metadata()
+
 
     def build_histogram(self, filename: str) -> np.ndarray:
         if self.codebook is None:
