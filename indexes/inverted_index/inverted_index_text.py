@@ -2,10 +2,13 @@ import os
 import pickle
 import numpy as np
 import time
+import json
+import heapq
 from typing import List, Dict, Tuple
 from ..core.performance_tracker import OperationResult
 from .text_preprocessor import TextPreprocessor
 from .spimi_builder import SPIMIBuilder
+import struct
 
 class InvertedTextIndex:
 
@@ -28,10 +31,31 @@ class InvertedTextIndex:
         self._load_if_exists()
 
     def build(self, records):
-        pass
+
+        records_list = list(records) if not isinstance(records, list) else records
+        self.num_documents = len(records_list)
+        
+        self._build_with_spimi(records_list)
+        
+        self._calculate_document_norms()
+        
+        self._persist()
 
     def _build_with_spimi(self, records):
-        pass
+
+        temp_dir = os.path.join(self.index_dir, "temp_blocks")
+        spimi = SPIMIBuilder(block_size_mb=50, temp_dir=temp_dir)
+        
+        def doc_generator():
+            for record in records:
+                doc_id = record.get('id') or record.get('__id__')
+                if doc_id is not None:
+                    yield (doc_id, record)
+        
+        output_file = os.path.join(self.index_dir, "postings.dat")
+        spimi.build_index(doc_generator(), self.field_name, output_file)
+        
+        self._calculate_tf_idf()
 
     def _calculate_tf_idf(self):
         pass
@@ -46,7 +70,7 @@ class InvertedTextIndex:
         pass
 
     def _preprocess_query(self, query: str) -> List[str]:
-        pass
+        return self.preprocessor.preprocess(query)
 
     def _build_query_vector(self, query_terms: List[str]) -> Dict[str, float]:
         pass
@@ -62,16 +86,65 @@ class InvertedTextIndex:
         pass
 
     def _persist(self):
-        pass
+
+        os.makedirs(self.index_dir, exist_ok=True)
+        
+        with open(self.vocabulary_file, 'wb') as f:
+            pickle.dump(self.vocabulary, f)
+        
+        with open(self.doc_norms_file, 'wb') as f:
+            pickle.dump(self.doc_norms, f)
+        
+        idf_file = os.path.join(self.index_dir, 'idf.dat')
+        with open(idf_file, 'wb') as f:
+            pickle.dump(self.idf, f)
+        
+        self._save_metadata()
 
     def _load_if_exists(self):
-        pass
+
+        #  vocabulario 
+        if os.path.exists(self.vocabulary_file):
+            with open(self.vocabulary_file, 'rb') as f:
+                self.vocabulary = pickle.load(f)
+        
+        #  normas de documentos
+        if os.path.exists(self.doc_norms_file):
+            with open(self.doc_norms_file, 'rb') as f:
+                self.doc_norms = pickle.load(f)
+        
+        # IDF
+        idf_file = os.path.join(self.index_dir, 'idf.dat')
+        if os.path.exists(idf_file):
+            with open(idf_file, 'rb') as f:
+                self.idf = pickle.load(f)
+        
+        # metadata
+        self._load_metadata()
 
     def _save_metadata(self):
-        pass
+
+        os.makedirs(self.index_dir, exist_ok=True)
+        metadata = {
+            'field_name': self.field_name,
+            'num_documents': self.num_documents,
+            'vocabulary_size': len(self.vocabulary),
+            'timestamp': int(time.time())
+        }
+        with open(self.metadata_file, 'w', encoding='utf-8') as f:
+            json.dump(metadata, f, ensure_ascii=False, indent=2)
+
 
     def _load_metadata(self):
-        pass
+
+        if not os.path.exists(self.metadata_file):
+            return
+        
+        with open(self.metadata_file, 'r', encoding='utf-8') as f:
+            metadata = json.load(f)
+        
+        self.field_name = metadata.get('field_name', self.field_name)
+        self.num_documents = metadata.get('num_documents', 0)
 
     def _read_postings_list(self, term: str):
         pass
