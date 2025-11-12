@@ -2,15 +2,17 @@ import os
 import pickle
 import struct
 import heapq
-from typing import List, Dict, Iterator
+from typing import List, Dict, Iterator, Tuple
 from .text_preprocessor import TextPreprocessor
 
 class SPIMIBuilder:
-    def __init__(self, block_size_mb: int = 50, temp_dir: str = "data/temp_blocks"):
+    def __init__(self, block_size_mb: int = 50, temp_dir: str = "data/temp_blocks", max_buffers: int = 10):
         self.block_size_mb = block_size_mb
         self.temp_dir = temp_dir
+        self.max_buffers = max_buffers
         self.preprocessor = TextPreprocessor()
         self.block_counter = 0
+        self.merge_pass_counter = 0
         os.makedirs(self.temp_dir, exist_ok=True)
 
     def build_index(self, documents: Iterator, field_name: str, output_file: str):
@@ -25,41 +27,44 @@ class SPIMIBuilder:
             self._cleanup_temp_files()
 
     def _process_documents_in_blocks(self, documents: Iterator, field_name: str):
-        block_data = {} #dict
-        block_files = [] #list of blocks
+        block_data = {}
+        block_files = []
         current_size_in_bytes = 0
-        # Convert block_size_mb to bytes
         block_size_bytes = self.block_size_mb * 1024 * 1024
 
         for doc_id, doc in documents:
-            text = doc.get(field_name) #get text document based on the field name where it actually is
+            text = doc.get(field_name)
             if not text:
                 continue
 
-            tokens = self.preprocessor.preprocess(text) #all the preprocessing
+            tokens = self.preprocessor.preprocess(text)
 
-            for token in tokens: #add all tokens
+            term_freq = {}
+            for token in tokens:
+                term_freq[token] = term_freq.get(token, 0) + 1
+
+            for token, tf in term_freq.items():
                 if token not in block_data:
-                    block_data[token] = [] #if not token in dic, create it
+                    block_data[token] = []
                     current_size_in_bytes += len(token)
-                block_data[token].append(doc_id) #add doc id in token
-                current_size_in_bytes += 4 # Assuming 4 bytes per doc_id
+                
+                block_data[token].append((doc_id, tf))
+                current_size_in_bytes += 8
 
-                # Check block size after adding each token
                 if current_size_in_bytes >= block_size_bytes:
-                    block_file = self._create_block(block_data) #dump block
+                    block_file = self._create_block(block_data)
                     block_files.append(block_file)
-                    block_data = {} #reset block_data for the next block
-                    current_size_in_bytes = 0 #reset size counter
+                    block_data = {}
+                    current_size_in_bytes = 0
 
-        if block_data: #leftover block
+        if block_data:
             block_file = self._create_block(block_data)
             block_files.append(block_file)
 
         return block_files
 
     def _create_block(self, block_data: Dict) -> str:
-        filename = f"block_{self.block_counter:06d}.pkl"
+        filename = f"block_{self.block_counter:06d}.dat"
         block_file = os.path.join(self.temp_dir, filename)
 
         serializable_block = {term: block_data[term] for term in sorted(block_data.keys())}
@@ -74,7 +79,6 @@ class SPIMIBuilder:
                 term_bytes = term.encode('utf-8')
                 postings_bytes = pickle.dumps(postings, protocol=pickle.HIGHEST_PROTOCOL)
 
-                # write term length, term, postings length, postings
                 f.write(struct.pack('I', len(term_bytes)))
                 f.write(term_bytes)
                 f.write(struct.pack('I', len(postings_bytes)))
@@ -83,10 +87,37 @@ class SPIMIBuilder:
     def merge_blocks(self, block_files: List[str], output_file: str):
         if not block_files:
             return
-        block_iterators = self._open_all_blocks(block_files)
-        self._merge_with_buffers(block_iterators, output_file)
 
-    def _open_all_blocks(self, block_files: List[str]) -> List:
+        current_files = block_files
+        
+        while len(current_files) > 1:
+            next_files = []
+            
+            for i in range(0, len(current_files), self.max_buffers):
+                batch = current_files[i:i + self.max_buffers]
+                
+                if len(current_files) <= self.max_buffers:
+                    output = output_file
+                else:
+                    output = os.path.join(
+                        self.temp_dir, 
+                        f"merged_pass{self.merge_pass_counter}_batch{i}.dat"
+                    )
+                
+                self._merge_batch(batch, output)
+                next_files.append(output)
+            
+            current_files = next_files
+            self.merge_pass_counter += 1
+
+        if len(block_files) == 1 and block_files[0] != output_file:
+            os.rename(block_files[0], output_file)
+
+    def _merge_batch(self, block_files: List[str], output_file: str):
+        block_readers = self._open_batch_blocks(block_files)
+        self._merge_with_buffers(block_readers, output_file)
+
+    def _open_batch_blocks(self, block_files: List[str]) -> List:
         block_readers = []
         for bf in block_files:
             f = open(bf, "rb")
@@ -98,18 +129,18 @@ class SPIMIBuilder:
                 "has_next": True
             }
 
-            try: #assign first element to each reader
+            try:
                 reader["current_term"], reader["current_postings"] = next(reader["iterator"])
-            except StopIteration: #else block empty dont crash
-                reader["has_next"] = False #no next
+            except StopIteration:
+                reader["has_next"] = False
                 f.close()
             
-            if reader["has_next"]:#if next, append to block readers, only blocks not empty
+            if reader["has_next"]:
                 block_readers.append(reader)
 
         return block_readers
 
-    def _read_block_terms(self, file_handle): #generator function, continous streaming througt the programs execution!!!
+    def _read_block_terms(self, file_handle):
         while True:
             try:
                 term_len_bytes = file_handle.read(4)
@@ -123,13 +154,13 @@ class SPIMIBuilder:
                 postings_bytes = file_handle.read(postings_len)
                 postings = pickle.loads(postings_bytes)
 
-                yield term, postings #return term posting, but function doesnt end, next time we call next() it will continue and give the next pair
+                yield term, postings
             except (struct.error, EOFError):
                 break
 
     def _merge_with_buffers(self, block_readers: List, output_file: str):
         min_heap = []
-        # Initialize heap with the first term from each block reader
+        
         for i, reader in enumerate(block_readers):
             heapq.heappush(min_heap, (reader["current_term"], i))
 
@@ -139,7 +170,6 @@ class SPIMIBuilder:
                 
                 postings_to_merge = [block_readers[block_idx]["current_postings"]]
                 
-                # Advance the reader for the block we just popped
                 try:
                     block_readers[block_idx]["current_term"], block_readers[block_idx]["current_postings"] = next(block_readers[block_idx]["iterator"])
                     heapq.heappush(min_heap, (block_readers[block_idx]["current_term"], block_idx))
@@ -147,12 +177,10 @@ class SPIMIBuilder:
                     block_readers[block_idx]["has_next"] = False
                     block_readers[block_idx]["file_handle"].close()
 
-                # Check for other blocks with the same term
                 while min_heap and min_heap[0][0] == current_term:
                     _, next_block_idx = heapq.heappop(min_heap)
                     postings_to_merge.append(block_readers[next_block_idx]["current_postings"])
                     
-                    # Advance the reader for this block as well
                     try:
                         block_readers[next_block_idx]["current_term"], block_readers[next_block_idx]["current_postings"] = next(block_readers[next_block_idx]["iterator"])
                         heapq.heappush(min_heap, (block_readers[next_block_idx]["current_term"], next_block_idx))
@@ -160,7 +188,6 @@ class SPIMIBuilder:
                         block_readers[next_block_idx]["has_next"] = False
                         block_readers[next_block_idx]["file_handle"].close()
 
-                # Merge postings and write to final index file
                 merged_postings = self._merge_postings(postings_to_merge)
                 
                 term_bytes = current_term.encode('utf-8')
@@ -171,28 +198,18 @@ class SPIMIBuilder:
                 f_out.write(struct.pack('I', len(postings_bytes)))
                 f_out.write(postings_bytes)
 
-    def _merge_postings(self, postings_lists: List[List[int]]) -> List[int]:
-        merged_list = []
-        min_heap = []
+    def _merge_postings(self, postings_lists: List[List[Tuple[int, int]]]) -> List[Tuple[int, int]]:
+        doc_tf_map = {}
         
-        # Initialize heap with the first element of each list
-        for i, p_list in enumerate(postings_lists):
-            if p_list:
-                heapq.heappush(min_heap, (p_list[0], i, 0)) # (doc_id, list_idx, element_idx)
-
-        while min_heap:
-            doc_id, list_idx, element_idx = heapq.heappop(min_heap)
-
-            # Add to merged list, avoiding duplicates
-            if not merged_list or merged_list[-1] != doc_id:
-                merged_list.append(doc_id)
-
-            # Push the next element from the same list back to the heap
-            next_element_idx = element_idx + 1
-            if next_element_idx < len(postings_lists[list_idx]):
-                next_doc_id = postings_lists[list_idx][next_element_idx]
-                heapq.heappush(min_heap, (next_doc_id, list_idx, next_element_idx))
-                
+        for postings in postings_lists:
+            for doc_id, tf in postings:
+                if doc_id in doc_tf_map:
+                    doc_tf_map[doc_id] += tf
+                else:
+                    doc_tf_map[doc_id] = tf
+        
+        merged_list = [(doc_id, doc_tf_map[doc_id]) for doc_id in sorted(doc_tf_map.keys())]
+        
         return merged_list
 
     def _cleanup_temp_files(self):
