@@ -2,7 +2,7 @@ import os
 import pickle
 import struct
 import heapq
-from typing import List, Dict, Iterator
+from typing import List, Dict, Iterator, Tuple
 from .text_preprocessor import TextPreprocessor
 
 class SPIMIBuilder:
@@ -37,13 +37,18 @@ class SPIMIBuilder:
                 continue
 
             tokens = self.preprocessor.preprocess(text) #all the preprocessing
+            
+            term_freq = {}
+            for token in tokens:
+                term_freq[token] = term_freq.get(token, 0) + 1
 
-            for token in tokens: #add all tokens
+            for token, tf in term_freq.items():
                 if token not in block_data:
                     block_data[token] = [] #if not token in dic, create it
                     current_size_in_bytes += len(token)
-                block_data[token].append(doc_id) #add doc id in token
-                current_size_in_bytes += 4 # Assuming 4 bytes per doc_id
+                
+                block_data[token].append((doc_id, tf))
+                current_size_in_bytes += 8 # 4, 4
 
                 # Check block size after adding each token
                 if current_size_in_bytes >= block_size_bytes:
@@ -171,27 +176,32 @@ class SPIMIBuilder:
                 f_out.write(struct.pack('I', len(postings_bytes)))
                 f_out.write(postings_bytes)
 
-    def _merge_postings(self, postings_lists: List[List[int]]) -> List[int]:
+    def _merge_postings(self, postings_lists: List[List[Tuple[int, int]]]) -> List[Tuple[int, int]]:
         merged_list = []
         min_heap = []
         
         # Initialize heap with the first element of each list
         for i, p_list in enumerate(postings_lists):
             if p_list:
-                heapq.heappush(min_heap, (p_list[0], i, 0)) # (doc_id, list_idx, element_idx)
+                doc_id, tf = p_list[0]
+                heapq.heappush(min_heap, (doc_id, tf, i, 0)) # (doc_id, tf, list_idx, element_idx)
 
         while min_heap:
-            doc_id, list_idx, element_idx = heapq.heappop(min_heap)
+            doc_id, tf, list_idx, element_idx = heapq.heappop(min_heap)
 
             # Add to merged list, avoiding duplicates
-            if not merged_list or merged_list[-1] != doc_id:
-                merged_list.append(doc_id)
+            if not merged_list or merged_list[-1][0] != doc_id:
+                merged_list.append((doc_id, tf))
+            else:
+                # This case should not happen with SPIMI if doc IDs are unique per block
+                # but as a safeguard, we can merge the term frequencies
+                merged_list[-1] = (doc_id, merged_list[-1][1] + tf)
 
             # Push the next element from the same list back to the heap
             next_element_idx = element_idx + 1
             if next_element_idx < len(postings_lists[list_idx]):
-                next_doc_id = postings_lists[list_idx][next_element_idx]
-                heapq.heappush(min_heap, (next_doc_id, list_idx, next_element_idx))
+                next_doc_id, next_tf = postings_lists[list_idx][next_element_idx]
+                heapq.heappush(min_heap, (next_doc_id, next_tf, list_idx, next_element_idx))
                 
         return merged_list
 
