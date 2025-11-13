@@ -31,37 +31,69 @@ class InvertedTextIndex:
         self._load_if_exists()
 
     def build(self, records):
-
         records_list = list(records) if not isinstance(records, list) else records
         self.num_documents = len(records_list)
-        
+
         self._build_with_spimi(records_list)
-        
+        self._calculate_tf_idf()
         self._calculate_document_norms()
-        
         self._persist()
 
     def _build_with_spimi(self, records):
-
         temp_dir = os.path.join(self.index_dir, "temp_blocks")
         spimi = SPIMIBuilder(block_size_mb=50, temp_dir=temp_dir)
-        
+
         def doc_generator():
             for record in records:
                 doc_id = record.get('id') or record.get('__id__')
                 if doc_id is not None:
                     yield (doc_id, record)
-        
+
         output_file = os.path.join(self.index_dir, "postings.dat")
         spimi.build_index(doc_generator(), self.field_name, output_file)
-        
-        self._calculate_tf_idf()
 
     def _calculate_tf_idf(self):
-        pass
+        if not os.path.exists(self.postings_file):
+            return
+
+        term_doc_freq = {}
+        vocabulary = {}
+
+        with open(self.postings_file, 'rb') as f:
+            while True:
+                offset = f.tell()
+
+                term_len_bytes = f.read(4)
+                if not term_len_bytes:
+                    break
+
+                term_len = struct.unpack('I', term_len_bytes)[0]
+                term = f.read(term_len).decode('utf-8')
+
+                postings_len_bytes = f.read(4)
+                postings_len = struct.unpack('I', postings_len_bytes)[0]
+                postings_bytes = f.read(postings_len)
+                postings = pickle.loads(postings_bytes)
+
+                df = len(postings)
+                term_doc_freq[term] = df
+                vocabulary[term] = {
+                    'offset': offset,
+                    'df': df
+                }
+
+        self.vocabulary = vocabulary
+        self._calculate_idf(term_doc_freq)
 
     def _calculate_idf(self, term_doc_freq: Dict[str, int]):
-        pass
+        for term, df in term_doc_freq.items():
+            if df > 0:
+                self.idf[term] = np.log(self.num_documents / df)
+            else:
+                self.idf[term] = 0.0
+
+            if term in self.vocabulary:
+                self.vocabulary[term]['idf'] = self.idf[term]
 
     def _calculate_document_norms(self):
         pass
