@@ -212,45 +212,64 @@ class InvertedTextIndex:
         results = [(doc_id, score) for score, doc_id in sorted(top_k_heap, reverse=True)]
         return results
 
-    def _persist(self):
+    def _read_postings_list(self, term: str) -> List[Tuple[int, int]]:
+        if term not in self.vocabulary:
+            return []
 
+        offset = self.vocabulary[term]['offset']
+
+        try:
+            with open(self.postings_file, 'rb') as f:
+                f.seek(offset)
+
+                term_len_bytes = f.read(4)
+                term_len = struct.unpack('I', term_len_bytes)[0]
+                stored_term = f.read(term_len).decode('utf-8')
+
+                if stored_term != term:
+                    return []
+
+                postings_len_bytes = f.read(4)
+                postings_len = struct.unpack('I', postings_len_bytes)[0]
+                postings_bytes = f.read(postings_len)
+                postings = pickle.loads(postings_bytes)
+
+                return postings
+        except Exception:
+            return []
+
+    def _persist(self):
         os.makedirs(self.index_dir, exist_ok=True)
-        
+
         with open(self.vocabulary_file, 'wb') as f:
             pickle.dump(self.vocabulary, f)
-        
+
         with open(self.doc_norms_file, 'wb') as f:
             pickle.dump(self.doc_norms, f)
-        
+
         idf_file = os.path.join(self.index_dir, 'idf.dat')
         with open(idf_file, 'wb') as f:
             pickle.dump(self.idf, f)
-        
+
         self._save_metadata()
 
     def _load_if_exists(self):
-
-        #  vocabulario 
         if os.path.exists(self.vocabulary_file):
             with open(self.vocabulary_file, 'rb') as f:
                 self.vocabulary = pickle.load(f)
-        
-        #  normas de documentos
+
         if os.path.exists(self.doc_norms_file):
             with open(self.doc_norms_file, 'rb') as f:
                 self.doc_norms = pickle.load(f)
-        
-        # IDF
+
         idf_file = os.path.join(self.index_dir, 'idf.dat')
         if os.path.exists(idf_file):
             with open(idf_file, 'rb') as f:
                 self.idf = pickle.load(f)
-        
-        # metadata
+
         self._load_metadata()
 
     def _save_metadata(self):
-
         os.makedirs(self.index_dir, exist_ok=True)
         metadata = {
             'field_name': self.field_name,
@@ -261,20 +280,12 @@ class InvertedTextIndex:
         with open(self.metadata_file, 'w', encoding='utf-8') as f:
             json.dump(metadata, f, ensure_ascii=False, indent=2)
 
-
     def _load_metadata(self):
-
         if not os.path.exists(self.metadata_file):
             return
-        
+
         with open(self.metadata_file, 'r', encoding='utf-8') as f:
             metadata = json.load(f)
-        
+
         self.field_name = metadata.get('field_name', self.field_name)
         self.num_documents = metadata.get('num_documents', 0)
-
-    def _read_postings_list(self, term: str):
-        pass
-
-    def _write_postings_list(self, term: str, postings: list):
-        pass
