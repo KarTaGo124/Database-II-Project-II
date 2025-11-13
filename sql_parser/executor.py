@@ -3,7 +3,7 @@ from typing import Dict, Any, List, Tuple, Optional
 from .plan_types import (
     CreateTablePlan, LoadDataPlan, SelectPlan, InsertPlan, DeletePlan,
     CreateIndexPlan, DropTablePlan, DropIndexPlan,
-    ColumnDef, ColumnType, PredicateEq, PredicateBetween, PredicateInPointRadius, PredicateKNN
+    ColumnDef, ColumnType, PredicateEq, PredicateBetween, PredicateInPointRadius, PredicateKNN, PredicateFulltext
 )
 from indexes.core.record import Table, Record
 from indexes.core.performance_tracker import OperationResult
@@ -284,6 +284,10 @@ class Executor:
                     except UnicodeDecodeError:
                         val = val.decode("utf-8", errors="replace").rstrip("\x00").strip()
                 obj[c] = val
+            
+            if hasattr(r, '_text_score'):
+                obj['_text_score'] = r._text_score
+            
             out.append(obj)
         return out
 
@@ -326,6 +330,30 @@ class Executor:
             projected_data = self._project_records(res.data, plan.columns)
             return OperationResult(projected_data, res.execution_time_ms, res.disk_reads, res.disk_writes, res.rebuild_triggered, res.operation_breakdown)
 
+        if isinstance(where, PredicateFulltext):
+            col = where.column
+            query = where.query
+            
+            table_info = self.db.tables.get(table)
+            if not table_info:
+                raise ValueError(f"Tabla {table} no existe")
+            
+            if col not in table_info["secondary_indexes"]:
+                raise ValueError(f"El campo '{col}' no tiene un índice secundario. Use CREATE INDEX para crear un índice INVERTED_TEXT primero.")
+            
+            index_type = table_info["secondary_indexes"][col]["type"]
+            if index_type != "INVERTED_TEXT":
+                raise ValueError(f"El operador @@ requiere un índice INVERTED_TEXT en el campo '{col}'. Actualmente tiene índice {index_type}.")
+            
+            top_k = plan.limit if plan.limit else 10
+            
+            res = self.db.search(table, query, field_name=col)
+            
+            data_list = res.data[:top_k] if isinstance(res.data, list) else []
+            
+            projected_data = self._project_records(data_list, plan.columns)
+            return OperationResult(projected_data, res.execution_time_ms, res.disk_reads, res.disk_writes, res.rebuild_triggered, res.operation_breakdown)
+        
         raise NotImplementedError("Predicado WHERE no soportado")
 
     # ====== INSERT ======

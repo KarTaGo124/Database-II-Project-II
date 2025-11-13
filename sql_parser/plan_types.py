@@ -52,10 +52,16 @@ class PredicateKNN:
     k: int
 
 @dataclass
+class PredicateFulltext:
+    column: str
+    query: str
+
+@dataclass
 class SelectPlan:
     table: str
     columns: Optional[List[str]]
     where: Optional[Any]
+    limit: Optional[int] = None
 
 @dataclass
 class InsertPlan:
