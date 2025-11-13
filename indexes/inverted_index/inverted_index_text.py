@@ -58,13 +58,56 @@ class InvertedTextIndex:
         self._calculate_tf_idf()
 
     def _calculate_tf_idf(self):
-        pass
+        if not os.path.exists(self.postings_file):
+            return
 
-    def _calculate_idf(self, term_doc_freq: Dict[str, int]):
-        pass
+        term_doc_freq = {}
+        with open(self.postings_file, "rb") as f:
+            for term, postings, offset in self._read_postings_from_file(f):
+                doc_freq = len(postings)
+                term_doc_freq[term] = doc_freq
+                self.vocabulary[term] = {
+                    "df": doc_freq,
+                    "offset": offset
+                }
+
+        for term, doc_freq in term_doc_freq.items():
+            self.idf[term] = np.log(self.num_documents / (doc_freq + 1))
 
     def _calculate_document_norms(self):
-        pass
+        if not os.path.exists(self.postings_file) or not self.idf:
+            return
+
+        doc_norms_sq = {}
+        with open(self.postings_file, "rb") as f:
+            for term, postings, _ in self._read_postings_from_file(f):
+                idf = self.idf.get(term, 0)
+                for doc_id, tf in postings:
+                    if doc_id not in doc_norms_sq:
+                        doc_norms_sq[doc_id] = 0
+                    doc_norms_sq[doc_id] += (tf * idf) ** 2
+
+        for doc_id, norm_sq in doc_norms_sq.items():
+            self.doc_norms[doc_id] = np.sqrt(norm_sq)
+
+    def _read_postings_from_file(self, file_handle):
+        while True:
+            try:
+                offset = file_handle.tell()
+                term_len_bytes = file_handle.read(4)
+                if not term_len_bytes:
+                    break
+                term_len = struct.unpack('I', term_len_bytes)[0]
+                term = file_handle.read(term_len).decode('utf-8')
+
+                postings_len_bytes = file_handle.read(4)
+                postings_len = struct.unpack('I', postings_len_bytes)[0]
+                postings_bytes = file_handle.read(postings_len)
+                postings = pickle.loads(postings_bytes)
+
+                yield term, postings, offset
+            except (struct.error, EOFError):
+                break
 
     def search(self, query: str, top_k: int = 10) -> OperationResult:
         pass
