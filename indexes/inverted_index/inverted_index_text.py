@@ -96,7 +96,34 @@ class InvertedTextIndex:
                 self.vocabulary[term]['idf'] = self.idf[term]
 
     def _calculate_document_norms(self):
-        pass
+        if not os.path.exists(self.postings_file):
+            return
+
+        doc_vectors = {}
+
+        with open(self.postings_file, 'rb') as f:
+            while True:
+                term_len_bytes = f.read(4)
+                if not term_len_bytes:
+                    break
+
+                term_len = struct.unpack('I', term_len_bytes)[0]
+                term = f.read(term_len).decode('utf-8')
+
+                postings_len_bytes = f.read(4)
+                postings_len = struct.unpack('I', postings_len_bytes)[0]
+                postings_bytes = f.read(postings_len)
+                postings = pickle.loads(postings_bytes)
+
+                idf = self.idf.get(term, 0.0)
+
+                for doc_id, tf in postings:
+                    tf_idf = tf * idf
+                    if doc_id not in doc_vectors:
+                        doc_vectors[doc_id] = 0.0
+                    doc_vectors[doc_id] += tf_idf ** 2
+
+        self.doc_norms = {doc_id: np.sqrt(norm_squared) for doc_id, norm_squared in doc_vectors.items()}
 
     def search(self, query: str, top_k: int = 10) -> OperationResult:
         pass
