@@ -107,6 +107,40 @@ class DatabaseManager:
         total_time = 0
         records_indexed = 0
 
+        if index_type == "INVERTED_TEXT":
+            if scan_existing:
+                primary_index = table_info["primary_index"]
+                if hasattr(primary_index, 'scan_all'):
+                    try:
+                        scan_result = primary_index.scan_all()
+                        existing_records = scan_result.data
+
+                        total_reads = scan_result.disk_reads
+                        total_writes = scan_result.disk_writes
+                        total_time = scan_result.execution_time_ms
+
+                        import time
+                        build_start = time.time()
+                        secondary_index.build(existing_records)
+                        build_time = (time.time() - build_start) * 1000
+                        total_time += build_time
+                        
+                        records_indexed = len(existing_records)
+
+                    except Exception as e:
+                        del table_info["secondary_indexes"][field_name]
+                        if hasattr(secondary_index, 'drop_index'):
+                            secondary_index.drop_index()
+                        raise ValueError(f"Error building fulltext index: {e}")
+
+            self._save_metadata()
+            return OperationResult(
+                data=f"Fulltext index created on {field_name} with {records_indexed} documents indexed",
+                execution_time_ms=total_time,
+                disk_reads=total_reads,
+                disk_writes=total_writes
+            )
+        
         if scan_existing:
             primary_index = table_info["primary_index"]
             if hasattr(primary_index, 'scan_all'):
@@ -177,6 +211,11 @@ class DatabaseManager:
             return OperationResult(False, total_time, total_reads, total_writes, primary_result.rebuild_triggered, breakdown)
 
         for field_name, index_info in table_info["secondary_indexes"].items():
+            index_type = index_info["type"]
+
+            if index_type == "INVERTED_TEXT":
+                continue
+
             secondary_index = index_info["index"]
 
             field_type, field_size = self._get_field_info(table_info["table"], field_name)
@@ -215,9 +254,54 @@ class DatabaseManager:
                 return OperationResult([], result.execution_time_ms, result.disk_reads, result.disk_writes)
 
         elif field_name in table_info["secondary_indexes"]:
-            secondary_index = table_info["secondary_indexes"][field_name]["index"]
+            secondary_info = table_info["secondary_indexes"][field_name]
+            secondary_index = secondary_info["index"]
+            index_type = secondary_info["type"]
             primary_index = table_info["primary_index"]
 
+            if index_type == "INVERTED_TEXT":
+                top_k = 10
+                secondary_result = secondary_index.search(value, top_k=top_k)
+
+                if not secondary_result.data:
+                    breakdown = {
+                        "primary_metrics": {"reads": 0, "writes": 0, "time_ms": 0},
+                        "secondary_metrics": {"reads": 0, "writes": 0, "time_ms": secondary_result.execution_time_ms}
+                    }
+                    return OperationResult([], secondary_result.execution_time_ms, 0, 0, operation_breakdown=breakdown)
+
+                total_time = secondary_result.execution_time_ms
+                total_reads = 0
+                total_writes = 0
+
+                primary_lookup_reads = 0
+                primary_lookup_writes = 0
+                primary_lookup_time = 0
+
+                matching_records = []
+                for doc_id, score in secondary_result.data:
+                    primary_result = primary_index.search(doc_id)
+                    primary_lookup_reads += primary_result.disk_reads
+                    primary_lookup_writes += primary_result.disk_writes
+                    primary_lookup_time += primary_result.execution_time_ms
+
+                    if primary_result.data:
+                        record = primary_result.data
+                        if not hasattr(record, '_text_score'):
+                            record._text_score = score
+                        matching_records.append(record)
+
+                total_reads += primary_lookup_reads
+                total_writes += primary_lookup_writes
+                total_time += primary_lookup_time
+
+                breakdown = {
+                    "primary_metrics": {"reads": primary_lookup_reads, "writes": primary_lookup_writes, "time_ms": primary_lookup_time},
+                    "secondary_metrics": {"reads": 0, "writes": 0, "time_ms": secondary_result.execution_time_ms}
+                }
+
+                return OperationResult(matching_records, total_time, total_reads, total_writes, operation_breakdown=breakdown)
+                        
             secondary_result = secondary_index.search(value)
             if not secondary_result.data:
                 breakdown = {
@@ -439,6 +523,11 @@ class DatabaseManager:
             total_time = search_result.execution_time_ms
 
             for fname, index_info in table_info["secondary_indexes"].items():
+                index_type = index_info["type"]
+
+                if index_type == "INVERTED_TEXT":
+                    continue
+
                 secondary_index = index_info["index"]
                 secondary_value = getattr(record, fname)
                 sec_result = secondary_index.delete(secondary_value, primary_key)
@@ -501,6 +590,11 @@ class DatabaseManager:
 
                     for fname, index_info in table_info["secondary_indexes"].items():
                         if fname != field_name:
+                            sec_type = index_info["type"]
+
+                            if sec_type == "INVERTED_TEXT":
+                                continue
+
                             sec_index = index_info["index"]
                             sec_value = getattr(record, fname)
                             sec_result = sec_index.delete(sec_value, pk)
@@ -571,6 +665,11 @@ class DatabaseManager:
                 pk = record.get_key()
 
                 for fname, index_info in table_info["secondary_indexes"].items():
+                    sec_type = index_info["type"]
+
+                    if sec_type == "INVERTED_TEXT":
+                        continue
+
                     sec_index = index_info["index"]
                     sec_value = getattr(record, fname)
                     sec_result = sec_index.delete(sec_value, pk)
@@ -634,6 +733,11 @@ class DatabaseManager:
             primary_key = record.get_key()
 
             for fname, index_info in table_info["secondary_indexes"].items():
+                sec_type = index_info["type"]
+
+                if sec_type == "INVERTED_TEXT":
+                    continue
+
                 sec_index = index_info["index"]
                 sec_value = getattr(record, fname)
                 sec_result = sec_index.delete(sec_value, primary_key)
@@ -884,6 +988,7 @@ class DatabaseManager:
                 index_column=field_name,
                 file_path=filename
             )
+        
         elif index_type == "HASH":
 
             secondary_dir = os.path.join(self.base_dir, table.table_name, f"secondary_hash_{field_name}")
@@ -892,6 +997,7 @@ class DatabaseManager:
             data_filename = os.path.join(secondary_dir, "datos")
 
             return ExtendibleHashing(data_filename, field_name, field_type, field_size, is_primary=False)
+        
         elif index_type == "RTREE":
             secondary_dir = os.path.join(self.base_dir, table.table_name, f"secondary_rtree_{field_name}")
             os.makedirs(secondary_dir, exist_ok=True)
@@ -904,6 +1010,19 @@ class DatabaseManager:
 
             from ..r_tree.r_tree import RTreeSecondaryIndex
             return RTreeSecondaryIndex(field_name, filename, dimension=dimension)
+        
+        elif index_type == "INVERTED_TEXT":
+            if field_type not in ["VARCHAR", "TEXT", "STRING"]:
+                raise ValueError(f"INVERTED_TEXT index requires text field, got {field_type}")
+
+            secondary_dir = os.path.join(self.base_dir, table.table_name, f"secondary_inverted_text_{field_name}")
+            os.makedirs(secondary_dir, exist_ok=True)
+
+            from ..inverted_index.inverted_index_text import InvertedTextIndex
+            return InvertedTextIndex(
+                index_dir=secondary_dir,
+                field_name=field_name
+            )
 
         raise NotImplementedError(f"Secondary index type {index_type} not implemented yet")
 
@@ -1060,15 +1179,6 @@ class DatabaseManager:
         pass
 
     def _get_multimedia_file_path(self, table_name: str, field_name: str, filename: str) -> str:
-        pass
-
-    def create_fulltext_index(self, table_name: str, field_name: str, index_name: str = "fulltext"):
-        pass
-
-    def search_fulltext(self, table_name: str, query: str, top_k: int = 10, index_name: str = "fulltext"):
-        pass
-
-    def drop_fulltext_index(self, table_name: str, index_name: str = "fulltext"):
         pass
 
     def create_multimedia_index(self, table_name: str, field_name: str, feature_type: str, n_clusters: int = 100):
