@@ -16,7 +16,6 @@ class InvertedTextIndex:
         self.index_dir = index_dir
         self.field_name = field_name
 
-        self.index_file = os.path.join(index_dir, "inverted_index.dat")
         self.postings_file = os.path.join(index_dir, "postings.dat")
         self.vocabulary_file = os.path.join(index_dir, "vocabulary.dat")
         self.doc_norms_file = os.path.join(index_dir, "doc_norms.dat")
