@@ -190,7 +190,23 @@ class InvertedTextIndex:
         self.num_documents = metadata.get('num_documents', 0)
 
     def _read_postings_list(self, term: str):
-        pass
+        if term not in self.vocabulary:
+            return None
+        
+        offset = self.vocabulary[term]['offset']
+        
+        with open(self.postings_file, "rb") as f:
+            f.seek(offset)
+            
+            term_len_bytes = f.read(4)
+            term_len = struct.unpack('I', term_len_bytes)[0]
+            f.read(term_len) 
+
+            postings_len_bytes = f.read(4)
+            postings_len = struct.unpack('I', postings_len_bytes)[0]
+            postings_bytes = f.read(postings_len)
+            
+            return pickle.loads(postings_bytes)
 
     def _write_postings_list(self, term: str, postings: list):
         pass
