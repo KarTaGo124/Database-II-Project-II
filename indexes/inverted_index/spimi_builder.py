@@ -3,6 +3,8 @@ import pickle
 import struct
 import heapq
 from typing import List, Dict, Iterator, Tuple
+
+from annotated_types import doc
 from .text_preprocessor import TextPreprocessor
 
 class SPIMIBuilder:
@@ -33,10 +35,13 @@ class SPIMIBuilder:
         block_size_bytes = self.block_size_mb * 1024 * 1024
 
         for doc_id, doc in documents:
-            text = doc.get(field_name)
+            text = getattr(doc, field_name, None)
             if not text:
                 continue
 
+            if isinstance(text, bytes):
+                text = text.decode('utf-8', errors='ignore').rstrip('\x00').strip()
+                
             tokens = self.preprocessor.preprocess(text)
 
             term_freq = {}

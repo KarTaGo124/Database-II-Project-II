@@ -185,13 +185,19 @@ class Executor:
             user_fields = [(name, ftype, fsize) for (name, ftype, fsize) in phys_fields
                           if name not in ['active']]
 
+            key_in_csv = key_field in header
+            auto_increment_counter = 1
+
             for row_values in reader:
                 rec = Record(phys_fields, key_field)
                 ok_row = True
 
                 for field_name, field_type, field_size in user_fields:
                     try:
-                        if field_type == "ARRAY" and plan.column_mappings and field_name in plan.column_mappings:
+                        if field_name == key_field and not key_in_csv:
+                            rec.set_field_value(field_name, auto_increment_counter)
+
+                        elif field_type == "ARRAY" and plan.column_mappings and field_name in plan.column_mappings:
                             csv_column_names = plan.column_mappings[field_name]
                             array_values = []
                             
@@ -249,8 +255,14 @@ class Executor:
                         duplicates += 1
                     else:
                         inserted += 1
+
+                    if not key_in_csv:
+                        auto_increment_counter += 1
+                        
                 except Exception as e:
                     cast_err += 1
+                    if not key_in_csv:
+                        auto_increment_counter += 1
                     continue
 
         self.db.warm_up_indexes(plan.table)

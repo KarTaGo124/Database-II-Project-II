@@ -94,6 +94,8 @@ class _T(Transformer):
         for it in items[2:]:
             if it == "KEY":
                 is_key = True
+                if coltype.kind != "INT":
+                    raise ValueError("Only INT columns can be PRIMARY KEY")
             elif it is None:
                 continue
             else:
