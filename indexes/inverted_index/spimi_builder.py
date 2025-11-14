@@ -4,7 +4,6 @@ import struct
 import heapq
 from typing import List, Dict, Iterator, Tuple
 
-from annotated_types import doc
 from .text_preprocessor import TextPreprocessor
 
 class SPIMIBuilder:

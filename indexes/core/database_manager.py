@@ -1012,7 +1012,7 @@ class DatabaseManager:
             return RTreeSecondaryIndex(field_name, filename, dimension=dimension)
         
         elif index_type == "INVERTED_TEXT":
-            if field_type not in ["VARCHAR", "TEXT", "STRING"]:
+            if field_type not in ["VARCHAR", "TEXT", "STRING", "CHAR"]:
                 raise ValueError(f"INVERTED_TEXT index requires text field, got {field_type}")
 
             secondary_dir = os.path.join(self.base_dir, table.table_name, f"secondary_inverted_text_{field_name}")
