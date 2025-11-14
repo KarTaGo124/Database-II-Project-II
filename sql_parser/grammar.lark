@@ -36,7 +36,7 @@ drop_index: "DROP" "INDEX" IDENT "ON" IDENT
 
 select_all: "*"
 select_cols: col_list
-select_stmt: "SELECT" (select_all | select_cols) "FROM" IDENT ["WHERE" predicate] ["LIMIT" INT]
+select_stmt: "SELECT" (select_all | select_cols) "FROM" IDENT ["WHERE" predicate] ["LIMIT" number]
 
 ?predicate: IDENT "=" literal                                    -> pred_eq
           | IDENT "BETWEEN" literal "AND" literal                -> pred_between
