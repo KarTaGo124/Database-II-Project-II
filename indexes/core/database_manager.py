@@ -37,7 +37,7 @@ class DatabaseManager:
         self.metadata_file = os.path.join(self.base_dir, "_metadata.json")
         self._load_metadata()
 
-    def create_table(self, table: Table, primary_index_type: str = "ISAM", csv_filename: str = None):
+    def create_table(self, table: Table, primary_index_type: str = "ISAM"):
         if not self._validate_primary_index(primary_index_type):
             raise ValueError(f"{primary_index_type} cannot be used as primary index")
 
@@ -49,13 +49,10 @@ class DatabaseManager:
             "table": table,
             "primary_index": None,
             "secondary_indexes": {},
-            "primary_type": primary_index_type,
-            "csv_filename": csv_filename
+            "primary_type": primary_index_type
         }
 
-        primary_index = self._create_primary_index(
-            table, primary_index_type, csv_filename
-        )
+        primary_index = self._create_primary_index(table, primary_index_type)
 
         if primary_index_type == "SEQUENTIAL":
             extra_fields = {"active": ("BOOL", 1)}
@@ -93,9 +90,7 @@ class DatabaseManager:
         if field_name in table_info["secondary_indexes"]:
             raise ValueError(f"Index on {field_name} already exists")
 
-        secondary_index = self._create_secondary_index(
-            table, field_name, index_type, table_info["csv_filename"]
-        )
+        secondary_index = self._create_secondary_index(table, field_name, index_type)
 
         table_info["secondary_indexes"][field_name] = {
             "index": secondary_index,
@@ -887,8 +882,7 @@ class DatabaseManager:
                 field_name: index_info["type"]
                 for field_name, index_info in table_info["secondary_indexes"].items()
             },
-            "field_count": len(table_info["table"].all_fields),
-            "csv_filename": table_info.get("csv_filename")
+            "field_count": len(table_info["table"].all_fields)
         }
 
     def list_tables(self):
@@ -934,7 +928,7 @@ class DatabaseManager:
                 return (ftype, fsize)
         return None
 
-    def _create_primary_index(self, table: Table, index_type: str, csv_filename: str):
+    def _create_primary_index(self, table: Table, index_type: str):
         if index_type == "ISAM":
 
             primary_dir = os.path.join(self.base_dir, table.table_name, f"primary_isam_{table.key_field}")
@@ -974,7 +968,7 @@ class DatabaseManager:
 
         raise NotImplementedError(f"Primary index type {index_type} not implemented yet")
 
-    def _create_secondary_index(self, table: Table, field_name: str, index_type: str, csv_filename: str):
+    def _create_secondary_index(self, table: Table, field_name: str, index_type: str):
         field_type, field_size = self._get_field_info(table, field_name)
 
         if index_type == "BTREE":
@@ -1094,7 +1088,6 @@ class DatabaseManager:
             table = table_info["table"]
             metadata[table_name] = {
                 "primary_type": table_info["primary_type"],
-                "csv_filename": table_info.get("csv_filename"),
                 "fields": [(name, dtype, size) for name, dtype, size in table.sql_fields],
                 "key_field": table.key_field,
                 "secondary_indexes": {
@@ -1128,7 +1121,6 @@ class DatabaseManager:
                     )
 
                     primary_type = table_meta["primary_type"]
-                    csv_filename = table_meta.get("csv_filename")
 
                     if primary_type == "SEQUENTIAL":
                         extra_fields = {"active": ("BOOL", 1)}
@@ -1139,21 +1131,18 @@ class DatabaseManager:
                             extra_fields=extra_fields
                         )
 
-                    primary_index = self._create_primary_index(table, primary_type, csv_filename)
+                    primary_index = self._create_primary_index(table, primary_type)
 
                     table_info = {
                         "table": table,
                         "primary_index": primary_index,
                         "secondary_indexes": {},
-                        "primary_type": primary_type,
-                        "csv_filename": csv_filename
+                        "primary_type": primary_type
                     }
 
                     for field_name, index_type in table_meta.get("secondary_indexes", {}).items():
                         try:
-                            secondary_index = self._create_secondary_index(
-                                table, field_name, index_type, csv_filename
-                            )
+                            secondary_index = self._create_secondary_index(table, field_name, index_type)
                             table_info["secondary_indexes"][field_name] = {
                                 "index": secondary_index,
                                 "type": index_type
