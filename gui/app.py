@@ -46,7 +46,7 @@ def main():
     state_manager = StateManager(DATA_DIR)
     state_manager.initialize_session_state()
     st.title("🗄️ Sistema de Gestión de Base de Datos")
-    st.caption("Sistema multi-índice con soporte espacial (ISAM, BTREE, HASH, RTREE, Sequential)")
+    st.caption("Sistema multi-índice con soporte espacial y fulltext (ISAM, BTREE, HASH, RTREE, SEQUENTIAL y INVERTED_TEXT)")
     render_sidebar(db_service, state_manager)
     selected_table = state_manager.get_selected_table()
 
