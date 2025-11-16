@@ -112,7 +112,13 @@ class MultimediaInverted(MultimediaIndexBase):
             pickle.dump(all_postings, f)
 
     def _persist(self):
-        pass
+        with open(self.postings_file, 'wb') as f:
+            pickle.dump(self.inverted_index, f)
+        with open(self.norms_file, 'wb') as f:
+            pickle.dump(self.norms, f)
+        with open(self.idf_file, 'wb') as f:
+            pickle.dump(self.idf, f)
+        self._save_metadata()
 
     def _load_if_exists(self):
         pass
