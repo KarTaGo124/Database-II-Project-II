@@ -5,6 +5,7 @@ import time
 from .multimedia_base import MultimediaIndexBase
 from ..core.performance_tracker import OperationResult
 import math
+import psutil
 class MultimediaInverted(MultimediaIndexBase):
 
     def __init__(self, index_dir: str, files_dir: str, field_name: str,
@@ -32,6 +33,10 @@ class MultimediaInverted(MultimediaIndexBase):
             if fname:
                 filenames.append(fname)
                 doc_ids.append(rec.get_key())
+        total_ram = psutil.virtual_memory().available
+        ram_to_use = int(total_ram * 0.8)
+        bytes_per_hist = self.n_clusters * 4
+        batch_size = max(1, ram_to_use // (bytes_per_hist * 2))  # factor 2 por seguridad
 
     def search(self, query_filename: str, top_k: int = 8) -> OperationResult:
         pass
