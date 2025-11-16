@@ -6,6 +6,8 @@ from .multimedia_base import MultimediaIndexBase
 from ..core.performance_tracker import OperationResult
 import math
 import psutil
+from concurrent.futures import ProcessPoolExecutor
+
 class MultimediaInverted(MultimediaIndexBase):
 
     def __init__(self, index_dir: str, files_dir: str, field_name: str,
@@ -42,7 +44,6 @@ class MultimediaInverted(MultimediaIndexBase):
             batch_files = filenames[batch_start:batch_start + batch_size]
             batch_doc_ids = doc_ids[batch_start:batch_start + batch_size]
 
-            from concurrent.futures import ProcessPoolExecutor
             with ProcessPoolExecutor() as executor:
                 results = list(executor.map(
                     lambda f: self.build_histogram(f, normalize=True), batch_files
@@ -50,6 +51,21 @@ class MultimediaInverted(MultimediaIndexBase):
             for doc_id, hist in zip(batch_doc_ids, results):
                 if hist is not None:
                     all_histograms[doc_id] = hist
+        self.calculate_idf(all_histograms)
+        inverted_index = {i: [] for i in range(self.n_clusters)}
+        norms = {}
+
+        for doc_id, hist in all_histograms.items():
+            norm = np.linalg.norm(hist)
+            norms[doc_id] = norm
+            for codeword_id, tf in enumerate(hist):
+                if tf > 0:
+                    inverted_index[codeword_id].append((doc_id, tf))
+
+        self.inverted_index = inverted_index
+        self.norms = norms
+        
+        self._persist()
     def search(self, query_filename: str, top_k: int = 8) -> OperationResult:
         pass
 
