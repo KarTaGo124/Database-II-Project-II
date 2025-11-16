@@ -102,7 +102,14 @@ class MultimediaInverted(MultimediaIndexBase):
 
 
     def _write_postings_list(self, codeword_id: int, postings: list):
-        pass
+        if os.path.exists(self.postings_file):
+            with open(self.postings_file, 'rb') as f:
+                all_postings = pickle.load(f)
+        else:
+            all_postings = {}
+        all_postings[codeword_id] = postings
+        with open(self.postings_file, 'wb') as f:
+            pickle.dump(all_postings, f)
 
     def _persist(self):
         pass
