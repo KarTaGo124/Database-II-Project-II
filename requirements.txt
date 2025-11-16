@@ -8,4 +8,6 @@ librosa
 numpy
 scipy
 pillow
+opencv-python
+
 psutil

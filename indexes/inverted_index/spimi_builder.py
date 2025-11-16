@@ -22,6 +22,7 @@ class SPIMIBuilder:
             self.max_buffers = max_buffers
             
         self.temp_dir = temp_dir
+        self.max_buffers = max_buffers
         self.preprocessor = TextPreprocessor()
         self.block_counter = 0
         self.merge_pass_counter = 0
@@ -96,6 +97,15 @@ class SPIMIBuilder:
         return block_file
 
     def _write_block_to_disk(self, block_data: Dict, block_file: str):
+        with open(block_file, "wb") as f:
+            for term, postings in block_data.items():
+                term_bytes = term.encode('utf-8')
+                postings_bytes = pickle.dumps(postings, protocol=pickle.HIGHEST_PROTOCOL)
+
+                f.write(struct.pack('I', len(term_bytes)))
+                f.write(term_bytes)
+                f.write(struct.pack('I', len(postings_bytes)))
+                f.write(postings_bytes)
         with open(block_file, "wb") as f:
             for term, postings in block_data.items():
                 term_bytes = term.encode('utf-8')

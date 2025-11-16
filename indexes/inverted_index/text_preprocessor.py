@@ -65,6 +65,7 @@ class TextPreprocessor:
 
     def to_lowercase(self, text: str) -> str:
         return text.lower()
+        return text.lower()
 
     def filter_stopwords(self, tokens: List[str]) -> List[str]:
         if not self.stopwords:

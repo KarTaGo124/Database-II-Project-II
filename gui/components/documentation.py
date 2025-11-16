@@ -8,7 +8,8 @@ def render_documentation():
         "➕ Inserción",
         "❌ Eliminación",
         "🗂️ Índices",
-        "🌍 Espaciales"
+        "🌍 Espaciales",
+        "📝 Fulltext"
     ])
     with tabs[0]:
         st.markdown("### Definición de Datos (DDL)")
@@ -36,6 +37,7 @@ def render_documentation():
             - `BTREE` - Primario y secundario (recomendado)
             - `HASH` - Solo secundario (búsquedas exactas muy rápidas)
             - `RTREE` - Solo secundario (para datos espaciales ARRAY)
+            - `INVERTED_TEXT` - Solo secundario (búsqueda fulltext en texto)
             """)
             st.code("""CREATE TABLE Restaurantes (
     id INT KEY INDEX BTREE,
@@ -190,18 +192,23 @@ WHERE fecha_apertura BETWEEN "2020-01-01" AND "2020-12-31";""", language="sql")
             - `BTREE` - Árbol B+, soporta búsquedas exactas y por rango
             - `HASH` - Hash extensible, solo búsquedas exactas (muy rápido)
             - `RTREE` - Árbol R, para datos espaciales
+            - `INVERTED_TEXT` - Índice invertido para búsqueda fulltext en campos de texto
+                        
             **Cuándo usar cada tipo:**
             - **BTREE**: Cuando necesitas rangos o datos ordenados
             - **HASH**: Cuando solo haces búsquedas exactas y quieres máxima velocidad
             - **RTREE**: Para campos ARRAY con coordenadas espaciales
+            - **INVERTED_TEXT**: Para campos de texto largos donde se requieren búsquedas por palabras clave
+                        
             **Proceso:**
             - El sistema escanea todos los registros existentes
             - Construye el índice con todas las entradas
-            - Las operaciones futuras mantienen el índice actualizado
+            - Las operaciones futuras mantienen el índice actualizado (excepto INVERTED_TEXT que es estático)
             """)
             st.code("""CREATE INDEX ON Restaurantes (nombre) USING BTREE;
 CREATE INDEX ON Restaurantes (rating) USING HASH;
-CREATE INDEX ON Restaurantes (ubicacion) USING RTREE;""", language="sql")
+CREATE INDEX ON Restaurantes (ubicacion) USING RTREE;
+CREATE INDEX ON Noticias (contenido) USING INVERTED_TEXT;""", language="sql")
         with st.expander("🗑️ DROP INDEX - Eliminar Índice"):
             st.markdown("""
             Elimina un índice secundario de un campo.
@@ -217,7 +224,9 @@ CREATE INDEX ON Restaurantes (ubicacion) USING RTREE;""", language="sql")
             """)
             st.code("""DROP INDEX nombre ON Restaurantes;
 DROP INDEX ubicacion ON Restaurantes;
-DROP INDEX rating ON Restaurantes;""", language="sql")
+DROP INDEX rating ON Restaurantes;
+DROP INDEX descripcion ON Restaurantes;
+                    """, language="sql")
     with tabs[5]:
         st.markdown("### Consultas Espaciales (R-Tree)")
         st.markdown("""
@@ -298,3 +307,95 @@ WHERE ubicacion NEAREST ((-34.6037, -58.3816), 10);""", language="sql")
         - **Índice requerido:** Crea un índice RTREE en campos ARRAY[FLOAT] para mejor rendimiento
         - **Formato de coordenadas:** (latitud, longitud) - ejemplo: (-34.6037, -58.3816) para Buenos Aires
         """)
+
+    with tabs[6]:
+        st.markdown("### Búsqueda Fulltext (Índice Invertido)")
+        st.markdown("""
+        Las consultas fulltext requieren:
+        1. Campo tipo `VARCHAR[n]` o `CHAR`
+        2. Índice `INVERTED_TEXT` en ese campo
+        **Características:**
+        - Búsqueda por similitud de texto usando TF-IDF
+        - Preprocesamiento en español (stopwords, stemming)
+        - Ranking por score de relevancia (cosine similarity)
+        - Índice estático (se crea una vez, no se actualiza con INSERT/DELETE)
+        """)
+        with st.expander("🔍 Búsqueda Fulltext (WHERE @@)", expanded=True):
+            st.markdown("""
+            Encuentra documentos relevantes para una consulta de texto.
+            **Sintaxis:**
+            ```sql
+            SELECT * FROM tabla
+            WHERE campo_texto @@ "palabras clave de búsqueda";
+            ```
+            **Parámetros:**
+            - `campo_texto`: Campo VARCHAR/CHAR con índice INVERTED_TEXT
+            - `"consulta"`: Texto de búsqueda entre comillas dobles
+            **Características:**
+            - Retorna documentos ordenados por relevancia (score de 0.0 a 1.0)
+            - Sin threshold mínimo (puede retornar matches con score bajo)
+            - Usa preprocesamiento: lowercase, remove punctuation, stopwords, stemming
+            - Sin LIMIT: retorna todos los resultados
+            - Con LIMIT N: retorna los top N resultados más relevantes
+            **Algoritmo:**
+            - Preprocesa la consulta (tokeniza, remueve stopwords, stemming)
+            - Calcula TF-IDF para cada término
+            - Retorna documentos ordenados por cosine similarity
+            """)
+            st.code("""SELECT * FROM Noticias
+WHERE contenido @@ "economía inflación precios";
+SELECT url, contenido FROM Noticias
+WHERE contenido @@ "tecnología inteligencia artificial" LIMIT 5;
+SELECT * FROM Noticias
+WHERE contenido @@ "política elecciones gobierno" LIMIT 20;""", language="sql")
+        with st.expander("📊 Flujo Completo - Ejemplo con Noticias"):
+            st.markdown("""
+            Ejemplo completo de creación de tabla, carga de datos y búsquedas fulltext.
+            **1. Crear tabla con campo de texto:**
+            ```sql
+            CREATE TABLE Noticias (
+                id INT KEY INDEX ISAM,
+                url VARCHAR[200],
+                contenido VARCHAR[5000],
+                categoria VARCHAR[50]
+            );
+            ```
+            **2. Cargar datos desde CSV:**
+            ```sql
+            LOAD DATA FROM FILE "data/datasets/news_es.csv" INTO Noticias;
+            ```
+            **3. Crear índice invertido:**
+            ```sql
+            CREATE INDEX ON Noticias (contenido) USING INVERTED_TEXT;
+            ```
+            **4. Realizar búsquedas fulltext:**
+            ```sql
+            SELECT categoria, contenido FROM Noticias
+            WHERE contenido @@ "economía inflación" LIMIT 5;
+            ```
+            **Nota:** El campo `_text_score` se agrega automáticamente a los resultados con el score de relevancia.
+            """)
+            st.code("""
+CREATE TABLE Noticias (
+    id INT KEY INDEX ISAM,
+    url VARCHAR[200],
+    contenido VARCHAR[5000],
+    categoria VARCHAR[50]
+); 
+LOAD DATA FROM FILE "data/datasets/news_es-2.csv" INTO Noticias;
+CREATE INDEX ON Noticias (contenido) USING INVERTED_TEXT;
+                    
+SELECT * FROM Noticias WHERE contenido @@ "economía" LIMIT 3;
+SELECT categoria, contenido FROM Noticias
+WHERE contenido @@ "tecnología inteligencia artificial" LIMIT 5;""", language="sql")
+        st.info("""
+        💡 **Consejos para búsquedas fulltext:**
+        - **Operador especial:** Usa `@@` para búsquedas fulltext: `WHERE campo @@ "consulta"`
+        - **Quotes dobles:** Usa comillas dobles para la consulta de texto
+        - **LIMIT:** Opcional. Sin LIMIT retorna todos los resultados, con LIMIT N retorna los top N
+        - **Score:** Los resultados incluyen `_text_score` (0.0 a 1.0) indicando relevancia
+        - **Sin threshold:** Retorna todos los matches, incluso con score bajo
+        - **Idioma:** Optimizado para español (stopwords, stemming)
+        - **Índice estático:** Se crea una vez con los datos existentes, no se actualiza automáticamente
+        """)
+

@@ -216,6 +216,7 @@ class InvertedTextIndex:
 
     def _preprocess_query(self, query: str) -> List[str]:
         return self.preprocessor.preprocess(query)
+        return self.preprocessor.preprocess(query)
 
     def _build_query_vector(self, query_terms: List[str]) -> Dict[str, float]:
         term_freq = {}
