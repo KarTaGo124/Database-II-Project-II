@@ -4,7 +4,7 @@ import pickle
 import time
 from .multimedia_base import MultimediaIndexBase
 from ..core.performance_tracker import OperationResult
-
+import math
 class MultimediaInverted(MultimediaIndexBase):
 
     def __init__(self, index_dir: str, files_dir: str, field_name: str,
@@ -25,7 +25,13 @@ class MultimediaInverted(MultimediaIndexBase):
         self._load_if_exists()
 
     def build(self, records):
-        pass
+        filenames = []
+        doc_ids = []
+        for rec in records:
+            fname = getattr(rec, self.field_name, None)
+            if fname:
+                filenames.append(fname)
+                doc_ids.append(rec.get_key())
 
     def search(self, query_filename: str, top_k: int = 8) -> OperationResult:
         pass

@@ -70,16 +70,8 @@ class MultimediaIndexBase:
             return 'audio'
         else:
             raise ValueError(f"Unknown media type for extension: {ext}")
-        ext = os.path.splitext(filename)[1].lower()
-        if ext in self.IMAGE_EXTENSIONS:
-            return 'image'
-        elif ext in self.AUDIO_EXTENSIONS:
-            return 'audio'
-        else:
-            raise ValueError(f"Unknown media type for extension: {ext}")
 
     def get_file_path(self, filename: str) -> str:
-        return os.path.join(self.files_dir, filename)
         return os.path.join(self.files_dir, filename)
 
     def _get_features_save_path(self, filename: str) -> str:
