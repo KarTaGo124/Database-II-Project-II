@@ -26,3 +26,15 @@ class SPIMIBuilder:
         self.block_counter = 0
         self.merge_pass_counter = 0
         os.makedirs(self.temp_dir, exist_ok=True)
+
+    def build_index(self, documents: Iterator, field_name: str, output_file: str):
+        try:
+            block_files = self._process_documents_in_blocks(documents, field_name)
+            if not block_files:
+                print("No se generaron bloques")
+                return None
+
+            self.merge_blocks(block_files, output_file)
+            return output_file
+        finally:
+            self._cleanup_temp_files()
