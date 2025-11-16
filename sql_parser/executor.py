@@ -357,11 +357,11 @@ class Executor:
             if index_type != "INVERTED_TEXT":
                 raise ValueError(f"El operador @@ requiere un índice INVERTED_TEXT en el campo '{col}'. Actualmente tiene índice {index_type}.")
             
-            top_k = plan.limit if plan.limit else 10
-            
-            res = self.db.search(table, query, field_name=col)
-            
-            data_list = res.data[:top_k] if isinstance(res.data, list) else []
+            limit = plan.limit if plan.limit else None
+
+            res = self.db.search(table, query, field_name=col, limit=limit)
+
+            data_list = res.data if isinstance(res.data, list) else []
             
             projected_data = self._project_records(data_list, plan.columns)
             return OperationResult(projected_data, res.execution_time_ms, res.disk_reads, res.disk_writes, res.rebuild_triggered, res.operation_breakdown)

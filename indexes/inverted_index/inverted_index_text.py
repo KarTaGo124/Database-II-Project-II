@@ -125,7 +125,7 @@ class InvertedTextIndex:
 
         self.doc_norms = {doc_id: np.sqrt(norm_squared) for doc_id, norm_squared in doc_vectors.items()}
 
-    def search(self, query: str, top_k: int = 10) -> OperationResult:
+    def search(self, query: str, top_k: int = None) -> OperationResult:
         start_time = time.time()
 
         query_terms = self._preprocess_query(query)
@@ -195,9 +195,12 @@ class InvertedTextIndex:
 
         return doc_scores
 
-    def _get_top_k_documents(self, scores: Dict[int, float], k: int) -> List[Tuple[int, float]]:
+    def _get_top_k_documents(self, scores: Dict[int, float], k: int = None) -> List[Tuple[int, float]]:
         if not scores:
             return []
+
+        if k is None:
+            return sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
         if len(scores) <= k:
             return sorted(scores.items(), key=lambda x: x[1], reverse=True)

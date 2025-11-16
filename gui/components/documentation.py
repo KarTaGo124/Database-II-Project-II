@@ -335,7 +335,8 @@ WHERE ubicacion NEAREST ((-34.6037, -58.3816), 10);""", language="sql")
             - Retorna documentos ordenados por relevancia (score de 0.0 a 1.0)
             - Sin threshold mínimo (puede retornar matches con score bajo)
             - Usa preprocesamiento: lowercase, remove punctuation, stopwords, stemming
-            - Por defecto retorna 10 resultados, usar LIMIT para cambiar
+            - Sin LIMIT: retorna todos los resultados
+            - Con LIMIT N: retorna los top N resultados más relevantes
             **Algoritmo:**
             - Preprocesa la consulta (tokeniza, remueve stopwords, stemming)
             - Calcula TF-IDF para cada término
@@ -391,7 +392,7 @@ WHERE contenido @@ "tecnología inteligencia artificial" LIMIT 5;""", language="
         💡 **Consejos para búsquedas fulltext:**
         - **Operador especial:** Usa `@@` para búsquedas fulltext: `WHERE campo @@ "consulta"`
         - **Quotes dobles:** Usa comillas dobles para la consulta de texto
-        - **LIMIT:** Controla cuántos resultados retornar (default: 10)
+        - **LIMIT:** Opcional. Sin LIMIT retorna todos los resultados, con LIMIT N retorna los top N
         - **Score:** Los resultados incluyen `_text_score` (0.0 a 1.0) indicando relevancia
         - **Sin threshold:** Retorna todos los matches, incluso con score bajo
         - **Idioma:** Optimizado para español (stopwords, stemming)

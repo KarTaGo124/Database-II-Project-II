@@ -233,7 +233,7 @@ class DatabaseManager:
 
         return OperationResult(primary_result.data, total_time, total_reads, total_writes, primary_result.rebuild_triggered, breakdown)
 
-    def search(self, table_name: str, value, field_name: str = None):
+    def search(self, table_name: str, value, field_name: str = None, limit: int = None):
         if table_name not in self.tables:
             raise ValueError(f"Table {table_name} does not exist")
 
@@ -255,7 +255,7 @@ class DatabaseManager:
             primary_index = table_info["primary_index"]
 
             if index_type == "INVERTED_TEXT":
-                top_k = 10
+                top_k = limit if limit is not None else None
                 secondary_result = secondary_index.search(value, top_k=top_k)
 
                 if not secondary_result.data:
