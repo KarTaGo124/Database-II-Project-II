@@ -31,10 +31,57 @@ class SPIMIBuilder:
         try:
             block_files = self._process_documents_in_blocks(documents, field_name)
             if not block_files:
-                print("No se generaron bloques")
                 return None
 
             self.merge_blocks(block_files, output_file)
             return output_file
         finally:
             self._cleanup_temp_files()
+
+    def _process_documents_in_blocks(self, documents: Iterator, field_name: str):
+        block_data = {}
+        block_files = []
+        current_size_in_bytes = 0
+        block_size_bytes = self.block_size_mb * 1024 * 1024
+        docs_processed = 0
+
+        for doc_id, doc in documents:
+            try:
+                text = getattr(doc, field_name, None) if hasattr(doc, field_name) else doc.get(field_name)
+                if not text:
+                    continue
+
+                if isinstance(text, bytes):
+                    text = text.decode('utf-8', errors='ignore').rstrip('\x00').strip()
+                    
+                tokens = self.preprocessor.preprocess(str(text))
+                if not tokens:
+                    continue
+
+                term_freq = {}
+                for token in tokens:
+                    term_freq[token] = term_freq.get(token, 0) + 1
+
+                for token, tf in term_freq.items():
+                    if token not in block_data:
+                        block_data[token] = []
+                        current_size_in_bytes += len(token.encode('utf-8')) + 64  # overhead
+                    
+                    block_data[token].append((doc_id, tf))
+                    current_size_in_bytes += 16 
+                    if current_size_in_bytes >= block_size_bytes:
+                        print(f"Bloque {self.block_counter} completado con {len(block_data)} términos únicos")
+                        block_file = self._create_block(block_data)
+                        block_files.append(block_file)
+                        block_data = {}
+                        current_size_in_bytes = 0
+
+                docs_processed += 1
+            except Exception as e:
+                continue
+
+        if block_data:
+            block_file = self._create_block(block_data)
+            block_files.append(block_file)
+
+        return block_files
