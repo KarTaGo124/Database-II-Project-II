@@ -85,3 +85,13 @@ class SPIMIBuilder:
             block_files.append(block_file)
 
         return block_files
+
+    def _create_block(self, block_data: Dict) -> str:
+        filename = f"block_{self.block_counter:06d}.dat"
+        block_file = os.path.join(self.temp_dir, filename)
+
+        serializable_block = {term: sorted(block_data[term]) for term in sorted(block_data.keys())}
+        self._write_block_to_disk(serializable_block, block_file)
+
+        self.block_counter += 1
+        return block_file
