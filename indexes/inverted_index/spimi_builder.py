@@ -106,3 +106,187 @@ class SPIMIBuilder:
                 f.write(term_bytes)
                 f.write(struct.pack('I', len(postings_bytes)))
                 f.write(postings_bytes)
+
+    def merge_blocks(self, block_files: List[str], output_file: str):
+        if not block_files:
+            return
+
+        current_files = block_files
+        
+        while len(current_files) > 1:
+            next_files = []
+            
+            for i in range(0, len(current_files), self.max_buffers):
+                batch = current_files[i:i + self.max_buffers]
+                
+                if len(current_files) <= self.max_buffers:
+                    output = output_file
+                else:
+                    output = os.path.join(
+                        self.temp_dir, 
+                        f"merged_pass{self.merge_pass_counter}_batch{i//self.max_buffers:03d}.dat"
+                    )
+                
+                self._merge_batch(batch, output)
+                next_files.append(output)
+            
+            if current_files != block_files:
+                for f in current_files:
+                    try:
+                        os.remove(f)
+                    except:
+                        pass
+            
+            current_files = next_files
+            self.merge_pass_counter += 1
+
+        if len(current_files) == 1 and current_files[0] != output_file:
+            os.rename(current_files[0], output_file)
+
+    def _merge_batch(self, block_files: List[str], output_file: str):
+        block_readers = self._open_batch_blocks(block_files)
+        if not block_readers:
+            return
+            
+        try:
+            self._merge_with_buffers(block_readers, output_file)
+        finally:
+            for reader in block_readers:
+                if reader["file_handle"] and not reader["file_handle"].closed:
+                    reader["file_handle"].close()
+
+    def _open_batch_blocks(self, block_files: List[str]) -> List:
+        block_readers = []
+        for bf in block_files:
+            try:
+                f = open(bf, "rb")
+                reader = {
+                    "file_handle": f,
+                    "iterator": self._read_block_terms(f),
+                    "current_term": None,
+                    "current_postings": None,
+                    "has_next": True,
+                    "filename": bf
+                }
+
+                try:
+                    reader["current_term"], reader["current_postings"] = next(reader["iterator"])
+                except StopIteration:
+                    reader["has_next"] = False
+                    f.close()
+                
+                if reader["has_next"]:
+                    block_readers.append(reader)
+                    
+            except Exception as e:
+                continue
+
+        return block_readers
+
+    def _read_block_terms(self, file_handle):
+        while True:
+            try:
+                term_len_bytes = file_handle.read(4)
+                if not term_len_bytes or len(term_len_bytes) < 4:
+                    break
+                    
+                term_len = struct.unpack('I', term_len_bytes)[0]
+                if term_len == 0:
+                    break
+                    
+                term = file_handle.read(term_len).decode('utf-8')
+
+                postings_len_bytes = file_handle.read(4)
+                if len(postings_len_bytes) < 4:
+                    break
+                    
+                postings_len = struct.unpack('I', postings_len_bytes)[0]
+                postings_bytes = file_handle.read(postings_len)
+                
+                if len(postings_bytes) < postings_len:
+                    break
+                    
+                postings = pickle.loads(postings_bytes)
+                yield term, postings
+                
+            except (struct.error, EOFError, pickle.PickleError):
+                break
+
+    def _merge_with_buffers(self, block_readers: List, output_file: str):
+        min_heap = []
+        
+        for i, reader in enumerate(block_readers):
+            if reader["has_next"]:
+                heapq.heappush(min_heap, (reader["current_term"], i))
+
+        merged_terms = 0
+        with open(output_file, "wb") as f_out:
+            while min_heap:
+                current_term, block_idx = heapq.heappop(min_heap)
+                
+                postings_to_merge = [block_readers[block_idx]["current_postings"]]
+                
+                try:
+                    block_readers[block_idx]["current_term"], block_readers[block_idx]["current_postings"] = next(block_readers[block_idx]["iterator"])
+                    heapq.heappush(min_heap, (block_readers[block_idx]["current_term"], block_idx))
+                except StopIteration:
+                    block_readers[block_idx]["has_next"] = False
+                    if block_readers[block_idx]["file_handle"]:
+                        block_readers[block_idx]["file_handle"].close()
+
+                while min_heap and min_heap[0][0] == current_term:
+                    _, next_block_idx = heapq.heappop(min_heap)
+                    postings_to_merge.append(block_readers[next_block_idx]["current_postings"])
+                    
+                    try:
+                        block_readers[next_block_idx]["current_term"], block_readers[next_block_idx]["current_postings"] = next(block_readers[next_block_idx]["iterator"])
+                        heapq.heappush(min_heap, (block_readers[next_block_idx]["current_term"], next_block_idx))
+                    except StopIteration:
+                        block_readers[next_block_idx]["has_next"] = False
+                        if block_readers[next_block_idx]["file_handle"]:
+                            block_readers[next_block_idx]["file_handle"].close()
+
+                merged_postings = self._merge_postings(postings_to_merge)
+                
+                term_bytes = current_term.encode('utf-8')
+                postings_bytes = pickle.dumps(merged_postings, protocol=pickle.HIGHEST_PROTOCOL)
+
+                f_out.write(struct.pack('I', len(term_bytes)))
+                f_out.write(term_bytes)
+                f_out.write(struct.pack('I', len(postings_bytes)))
+                f_out.write(postings_bytes)
+                
+                merged_terms += 1
+                if merged_terms % 10000 == 0:
+                    print(f"Merged {merged_terms} términos...")
+
+    def _merge_postings(self, postings_lists: List[List[Tuple[int, int]]]) -> List[Tuple[int, int]]:
+        doc_tf_map = {}
+        
+        for postings in postings_lists:
+            for doc_id, tf in postings:
+                doc_tf_map[doc_id] = doc_tf_map.get(doc_id, 0) + tf
+        
+        return [(doc_id, doc_tf_map[doc_id]) for doc_id in sorted(doc_tf_map.keys())]
+
+    def get_memory_usage(self):
+        memory = psutil.virtual_memory()
+        return {
+            'total_mb': memory.total // (1024 * 1024),
+            'available_mb': memory.available // (1024 * 1024),
+            'used_mb': memory.used // (1024 * 1024),
+            'percent': memory.percent
+        }
+
+    def _cleanup_temp_files(self):
+        try:
+            if os.path.exists(self.temp_dir):
+                for fname in os.listdir(self.temp_dir):
+                    path = os.path.join(self.temp_dir, fname)
+                    try:
+                        if os.path.isfile(path):
+                            os.remove(path)
+                    except Exception as e:
+                        print(f"Error eliminando {path}: {e}")
+        except FileNotFoundError:
+            pass
