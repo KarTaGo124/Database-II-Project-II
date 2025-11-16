@@ -78,6 +78,17 @@ class MultimediaInverted(MultimediaIndexBase):
             for doc_id, tf in postings:
                 doc_weight = tf * self.idf.get(codeword_id, 0.0)
                 scores[doc_id] = scores.get(doc_id, 0.0) + q_weight * doc_weight
+        q_norm = np.linalg.norm(query_vec)
+        for doc_id in scores:
+            d_norm = self.norms.get(doc_id, 1.0)
+            if q_norm > 0 and d_norm > 0:
+                scores[doc_id] /= (q_norm * d_norm)
+            else:
+                scores[doc_id] = 0.0
+
+        top_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
+        return OperationResult(data=top_docs, execution_time_ms=0, disk_reads=0, disk_writes=0)
+
 
 
     def _read_postings_list(self, codeword_id: int):
