@@ -3,6 +3,8 @@ import numpy as np
 import heapq
 import pickle
 import time
+import psutil
+from concurrent.futures import ProcessPoolExecutor
 from .multimedia_base import MultimediaIndexBase
 from ..core.performance_tracker import OperationResult
 
@@ -26,19 +28,38 @@ class MultimediaSequential(MultimediaIndexBase):
         self._load_if_exists()
 
     def build(self, records):
-        pass
+        filenames = []
+        doc_ids = []
+        for rec in records:
+            fname = getattr(rec, self.field_name, None)
+            if fname:
+                filenames.append(fname)
+                doc_ids.append(rec.get_key())
 
-    def search(self, query_filename: str, top_k: int = 8) -> OperationResult:
-        pass
+        total_ram = psutil.virtual_memory().available
+        ram_to_use = int(total_ram * 0.8)
+        bytes_per_hist = self.n_clusters * 4
+        batch_size = max(1, ram_to_use // (bytes_per_hist * 2))  # factor 2 por seguridad
 
-    def _persist(self):
-        pass
+        all_histograms = {}
+        for batch_start in range(0, len(filenames), batch_size):
+            batch_files = filenames[batch_start:batch_start + batch_size]
+            batch_doc_ids = doc_ids[batch_start:batch_start + batch_size]
 
-    def _load_if_exists(self):
-        pass
+            with ProcessPoolExecutor() as executor:
+                results = list(executor.map(
+                    lambda f: self.build_histogram(f, normalize=True), batch_files
+                ))
 
-    def _save_metadata(self):
-        pass
+            for doc_id, hist in zip(batch_doc_ids, results):
+                if hist is not None:
+                    all_histograms[doc_id] = hist
 
-    def _load_metadata(self):
-        pass
+        self.histograms = all_histograms
+        self.calculate_idf(self.histograms)
+
+        self.norms = {doc_id: np.linalg.norm(hist) for doc_id, hist in self.histograms.items()}
+
+        self._persist()
+
+   
