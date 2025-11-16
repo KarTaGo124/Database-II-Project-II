@@ -9,6 +9,7 @@ from ..core.performance_tracker import OperationResult
 from .text_preprocessor import TextPreprocessor
 from .spimi_builder import SPIMIBuilder
 import struct
+from ..core.record import Record
 
 class InvertedTextIndex:
 
@@ -29,7 +30,7 @@ class InvertedTextIndex:
 
         self._load_if_exists()
 
-    def build(self, records):
+    def build(self, records: List[Record]):
         records_list = list(records) if not isinstance(records, list) else records
         self.num_documents = len(records_list)
 
@@ -38,13 +39,13 @@ class InvertedTextIndex:
         self._calculate_document_norms()
         self._persist()
 
-    def _build_with_spimi(self, records):
+    def _build_with_spimi(self, records: List[Record]):
         temp_dir = os.path.join(self.index_dir, "temp_blocks")
         spimi = SPIMIBuilder(block_size_mb=50, temp_dir=temp_dir)
 
         def doc_generator():
             for record in records:
-                doc_id = record.get('id') or record.get('__id__')
+                doc_id = record.get_key()
                 if doc_id is not None:
                     yield (doc_id, record)
 
@@ -124,17 +125,17 @@ class InvertedTextIndex:
 
         self.doc_norms = {doc_id: np.sqrt(norm_squared) for doc_id, norm_squared in doc_vectors.items()}
 
-    def search(self, query: str, top_k: int = 10) -> OperationResult:
+    def search(self, query: str, top_k: int = None) -> OperationResult:
         start_time = time.time()
 
         query_terms = self._preprocess_query(query)
 
         if not query_terms:
             return OperationResult(
-                success=False,
                 data=[],
                 execution_time_ms=0,
-                error="Empty query after preprocessing"
+                disk_reads=0,
+                disk_writes=0
             )
 
         query_vector = self._build_query_vector(query_terms)
@@ -144,9 +145,10 @@ class InvertedTextIndex:
         execution_time = (time.time() - start_time) * 1000
 
         return OperationResult(
-            success=True,
             data=top_results,
-            execution_time_ms=execution_time
+            execution_time_ms=execution_time,
+            disk_reads=0,
+            disk_writes=0
         )
 
     def _preprocess_query(self, query: str) -> List[str]:
@@ -193,9 +195,12 @@ class InvertedTextIndex:
 
         return doc_scores
 
-    def _get_top_k_documents(self, scores: Dict[int, float], k: int) -> List[Tuple[int, float]]:
+    def _get_top_k_documents(self, scores: Dict[int, float], k: int = None) -> List[Tuple[int, float]]:
         if not scores:
             return []
+
+        if k is None:
+            return sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
         if len(scores) <= k:
             return sorted(scores.items(), key=lambda x: x[1], reverse=True)
