@@ -80,6 +80,7 @@ class CreateIndexPlan:
     table: str
     column: str
     index_type: str
+    language: str = "spanish"
 
 @dataclass
 class DropTablePlan:
