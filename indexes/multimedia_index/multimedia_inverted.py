@@ -121,10 +121,32 @@ class MultimediaInverted(MultimediaIndexBase):
         self._save_metadata()
 
     def _load_if_exists(self):
-        pass
+        if os.path.exists(self.postings_file):
+            with open(self.postings_file, 'rb') as f:
+                self.inverted_index = pickle.load(f)
+        if os.path.exists(self.norms_file):
+            with open(self.norms_file, 'rb') as f:
+                self.norms = pickle.load(f)
+        if os.path.exists(self.idf_file):
+            with open(self.idf_file, 'rb') as f:
+                self.idf = pickle.load(f)
+        self._load_metadata()
 
     def _save_metadata(self):
-        pass
-
+        metadata = {
+            'n_clusters': self.n_clusters,
+            'feature_type': self.feature_type,
+            'field_name': self.field_name,
+            'postings_file': self.postings_file,
+            'norms_file': self.norms_file,
+            'idf_file': self.idf_file
+        }
+        with open(self.metadata_file, 'w') as f:
+            pickle.dump(metadata, f)
     def _load_metadata(self):
-        pass
+        if os.path.exists(self.metadata_file):
+            with open(self.metadata_file, 'rb') as f:
+                metadata = pickle.load(f)
+            self.n_clusters = metadata.get('n_clusters', self.n_clusters)
+            self.feature_type = metadata.get('feature_type', self.feature_type)
+            self.field_name = metadata.get('field_name', self.field_name)
