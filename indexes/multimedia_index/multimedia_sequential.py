@@ -62,4 +62,25 @@ class MultimediaSequential(MultimediaIndexBase):
 
         self._persist()
 
-   
+    def search(self, query_filename: str, top_k: int = 8) -> OperationResult:
+        start_time = time.time()
+        query_vec = self.get_tf_idf_vector(query_filename)
+        if query_vec is None or len(self.histograms) == 0:
+            return OperationResult(data=[], execution_time_ms=0, disk_reads=0, disk_writes=0)
+
+        scores = {}
+        q_norm = np.linalg.norm(query_vec)
+        for doc_id, doc_vec in self.histograms.items():
+            d_norm = self.norms.get(doc_id, 1.0)
+            if q_norm > 0 and d_norm > 0:
+                score = float(np.dot(query_vec, doc_vec) / (q_norm * d_norm))
+            else:
+                score = 0.0
+            scores[doc_id] = score
+
+        top_docs = heapq.nlargest(top_k, scores.items(), key=lambda x: x[1])
+        exec_time = (time.time() - start_time) * 1000
+
+        return OperationResult(data=top_docs, execution_time_ms=exec_time, disk_reads=0, disk_writes=0)
+
+    
