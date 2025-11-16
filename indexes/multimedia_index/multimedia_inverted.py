@@ -92,7 +92,14 @@ class MultimediaInverted(MultimediaIndexBase):
 
 
     def _read_postings_list(self, codeword_id: int):
-        pass
+        if self.inverted_index and codeword_id in self.inverted_index:
+            return self.inverted_index[codeword_id]
+        if os.path.exists(self.postings_file):
+            with open(self.postings_file, 'rb') as f:
+                postings = pickle.load(f)
+            return postings.get(codeword_id, [])
+        return []
+
 
     def _write_postings_list(self, codeword_id: int, postings: list):
         pass
