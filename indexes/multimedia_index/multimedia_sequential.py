@@ -83,4 +83,43 @@ class MultimediaSequential(MultimediaIndexBase):
 
         return OperationResult(data=top_docs, execution_time_ms=exec_time, disk_reads=0, disk_writes=0)
 
-    
+    def _persist(self):
+        with open(self.histograms_file, 'wb') as f:
+            pickle.dump(self.histograms, f)
+        with open(self.norms_file, 'wb') as f:
+            pickle.dump(self.norms, f)
+        with open(self.idf_file, 'wb') as f:
+            pickle.dump(self.idf, f)
+        self._save_metadata()
+
+    def _load_if_exists(self):
+        if os.path.exists(self.histograms_file):
+            with open(self.histograms_file, 'rb') as f:
+                self.histograms = pickle.load(f)
+        if os.path.exists(self.norms_file):
+            with open(self.norms_file, 'rb') as f:
+                self.norms = pickle.load(f)
+        if os.path.exists(self.idf_file):
+            with open(self.idf_file, 'rb') as f:
+                self.idf = pickle.load(f)
+        self._load_metadata()
+
+    def _save_metadata(self):
+        metadata = {
+            'n_clusters': self.n_clusters,
+            'feature_type': self.feature_type,
+            'field_name': self.field_name,
+            'histograms_file': self.histograms_file,
+            'norms_file': self.norms_file,
+            'idf_file': self.idf_file
+        }
+        with open(self.metadata_file, 'w') as f:
+            pickle.dump(metadata, f)
+
+    def _load_metadata(self):
+        if os.path.exists(self.metadata_file):
+            with open(self.metadata_file, 'rb') as f:
+                metadata = pickle.load(f)
+            self.n_clusters = metadata.get('n_clusters', self.n_clusters)
+            self.feature_type = metadata.get('feature_type', self.feature_type)
+            self.field_name = metadata.get('field_name', self.field_name)
