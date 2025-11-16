@@ -116,6 +116,7 @@ class MultimediaSequential(MultimediaIndexBase):
         with open(self.metadata_file, 'w') as f:
             pickle.dump(metadata, f)
 
+
     def _load_metadata(self):
         if os.path.exists(self.metadata_file):
             with open(self.metadata_file, 'rb') as f:
