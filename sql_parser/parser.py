@@ -209,7 +209,17 @@ class _T(Transformer):
         table = _tok2str(items[0])
         column = _tok2str(items[1])
         index_type = _tok2str(items[2])
-        return CreateIndexPlan(index_name=column, table=table, column=column, index_type=index_type)
+        language = "spanish"
+        if len(items) > 3 and items[3] is not None:
+            lang_token = items[3]
+            if isinstance(lang_token, Token):
+                if lang_token.type == "STRING":
+                    language = lang_token.value[1:-1]
+                else:
+                    language = lang_token.value
+            elif lang_token is not None:
+                language = str(lang_token)
+        return CreateIndexPlan(index_name=column, table=table, column=column, index_type=index_type, language=language)
 
     # ==== DROP TABLE ====
     def drop_table(self, items):

@@ -367,6 +367,8 @@ WHERE contenido @@ "política elecciones gobierno" LIMIT 20;""", language="sql")
             **3. Crear índice invertido:**
             ```sql
             CREATE INDEX ON Noticias (contenido) USING INVERTED_TEXT;
+            CREATE INDEX ON Noticias (contenido) USING INVERTED_TEXT LANGUAGE "spanish";
+            CREATE INDEX ON News (content) USING INVERTED_TEXT LANGUAGE "english";
             ```
             **4. Realizar búsquedas fulltext:**
             ```sql
@@ -395,7 +397,9 @@ WHERE contenido @@ "tecnología inteligencia artificial" LIMIT 5;""", language="
         - **LIMIT:** Opcional. Sin LIMIT retorna todos los resultados, con LIMIT N retorna los top N
         - **Score:** Los resultados incluyen `_text_score` (0.0 a 1.0) indicando relevancia
         - **Sin threshold:** Retorna todos los matches, incluso con score bajo
-        - **Idioma:** Optimizado para español (stopwords, stemming)
+        - **Idioma:** Soporta múltiples idiomas (spanish, english, etc.)
+          - Default: spanish
+          - Especificar con: `LANGUAGE "idioma"` al crear el índice
         - **Índice estático:** Se crea una vez con los datos existentes, no se actualiza automáticamente
         """)
 

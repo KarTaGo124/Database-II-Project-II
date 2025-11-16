@@ -28,7 +28,7 @@ load_data: "LOAD" "DATA" "FROM" "FILE" STRING "INTO" IDENT ["WITH" "MAPPING" "("
 
 column_mapping: IDENT "=" "ARRAY" "(" IDENT ("," IDENT)* ")"
 
-create_index: "CREATE" "INDEX" "ON" IDENT "(" IDENT ")" "USING" index_kind
+create_index: "CREATE" "INDEX" "ON" IDENT "(" IDENT ")" "USING" index_kind ["LANGUAGE" STRING]
 
 drop_table: "DROP" "TABLE" IDENT
 

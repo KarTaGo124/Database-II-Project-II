@@ -13,16 +13,17 @@ from ..core.record import Record
 
 class InvertedTextIndex:
 
-    def __init__(self, index_dir: str, field_name: str):
+    def __init__(self, index_dir: str, field_name: str, language: str = 'spanish'):
         self.index_dir = index_dir
         self.field_name = field_name
+        self.language = language
 
         self.postings_file = os.path.join(index_dir, "postings.dat")
         self.vocabulary_file = os.path.join(index_dir, "vocabulary.dat")
         self.doc_norms_file = os.path.join(index_dir, "doc_norms.dat")
         self.metadata_file = os.path.join(index_dir, "metadata.json")
 
-        self.preprocessor = TextPreprocessor()
+        self.preprocessor = TextPreprocessor(language=language)
         self.vocabulary = {}
         self.doc_norms = {}
         self.idf = {}

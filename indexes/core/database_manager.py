@@ -70,7 +70,7 @@ class DatabaseManager:
 
         return True
 
-    def create_index(self, table_name: str, field_name: str, index_type: str, scan_existing: bool = True):
+    def create_index(self, table_name: str, field_name: str, index_type: str, scan_existing: bool = True, language: str = "spanish"):
         if table_name not in self.tables:
             raise ValueError(f"Table {table_name} does not exist")
 
@@ -90,11 +90,12 @@ class DatabaseManager:
         if field_name in table_info["secondary_indexes"]:
             raise ValueError(f"Index on {field_name} already exists")
 
-        secondary_index = self._create_secondary_index(table, field_name, index_type)
+        secondary_index = self._create_secondary_index(table, field_name, index_type, language=language)
 
         table_info["secondary_indexes"][field_name] = {
             "index": secondary_index,
-            "type": index_type
+            "type": index_type,
+            "language": language if index_type == "INVERTED_TEXT" else None
         }
 
         total_reads = 0
@@ -968,7 +969,7 @@ class DatabaseManager:
 
         raise NotImplementedError(f"Primary index type {index_type} not implemented yet")
 
-    def _create_secondary_index(self, table: Table, field_name: str, index_type: str):
+    def _create_secondary_index(self, table: Table, field_name: str, index_type: str, language: str = "spanish"):
         field_type, field_size = self._get_field_info(table, field_name)
 
         if index_type == "BTREE":
@@ -1015,7 +1016,8 @@ class DatabaseManager:
             from ..inverted_index.inverted_index_text import InvertedTextIndex
             return InvertedTextIndex(
                 index_dir=secondary_dir,
-                field_name=field_name
+                field_name=field_name,
+                language=language
             )
 
         raise NotImplementedError(f"Secondary index type {index_type} not implemented yet")
@@ -1091,7 +1093,10 @@ class DatabaseManager:
                 "fields": [(name, dtype, size) for name, dtype, size in table.sql_fields],
                 "key_field": table.key_field,
                 "secondary_indexes": {
-                    field: info["type"]
+                    field: {
+                        "type": info["type"],
+                        "language": info.get("language")
+                    }
                     for field, info in table_info["secondary_indexes"].items()
                 }
             }
@@ -1140,12 +1145,16 @@ class DatabaseManager:
                         "primary_type": primary_type
                     }
 
-                    for field_name, index_type in table_meta.get("secondary_indexes", {}).items():
+                    for field_name, index_info in table_meta.get("secondary_indexes", {}).items():
                         try:
-                            secondary_index = self._create_secondary_index(table, field_name, index_type)
+                            index_type = index_info["type"]
+                            language = index_info.get("language", "spanish")
+
+                            secondary_index = self._create_secondary_index(table, field_name, index_type, language=language)
                             table_info["secondary_indexes"][field_name] = {
                                 "index": secondary_index,
-                                "type": index_type
+                                "type": index_type,
+                                "language": language if index_type == "INVERTED_TEXT" else None
                             }
                             if hasattr(secondary_index, 'warm_up'):
                                 secondary_index.warm_up()
