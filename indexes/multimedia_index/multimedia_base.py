@@ -10,6 +10,165 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 import pickle
 import hashlib
 
+
+def _extract_features_batch_worker(batch_data):
+    
+    batch_filenames, files_dir, feature_type, features_dir, cache_size = batch_data
+    
+    feature_extractors = {
+        'SIFT': _extract_sift_global,
+        'ORB': _extract_orb_global,
+        'HOG': _extract_hog_global,
+        'MFCC': _extract_mfcc_global,
+        'CHROMA': _extract_chroma_global,
+        'SPECTRAL': _extract_spectral_global
+    }
+    
+    batch_descriptors = []
+    
+    for filename in batch_filenames:
+        try:
+            file_path = os.path.join(files_dir, filename)
+            if not os.path.exists(file_path):
+                continue
+            
+            base_name = os.path.splitext(filename)[0]
+            file_hash = hashlib.md5(filename.encode()).hexdigest()[:8]
+            feature_file = f"{base_name}_{file_hash}_{feature_type}.npy"
+            features_path = os.path.join(features_dir, feature_file)
+            
+            features = None
+            if os.path.exists(features_path):
+                try:
+                    features = np.load(features_path)
+                except Exception:
+                    pass
+            
+            if features is None:
+                extractor_func = feature_extractors.get(feature_type)
+                if extractor_func:
+                    features = extractor_func(file_path)
+                    if features is not None and len(features) > 0:
+                        os.makedirs(features_dir, exist_ok=True)
+                        np.save(features_path, features)
+            
+            if features is not None and len(features) > 0:
+                if len(features) > 1000:
+                    indices = np.random.choice(len(features), 1000, replace=False)
+                    features = features[indices]
+                batch_descriptors.append(features)
+                
+        except Exception as e:
+            logging.error(f"Error procesando {filename}: {e}")
+    
+    return batch_descriptors
+
+
+def _extract_sift_global(image_path: str) -> Optional[np.ndarray]:
+    try:
+        img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            return None
+        
+        if img.shape[0] > 1024 or img.shape[1] > 1024:
+            scale = 1024 / max(img.shape)
+            new_size = (int(img.shape[1] * scale), int(img.shape[0] * scale))
+            img = cv2.resize(img, new_size)
+
+        sift = cv2.SIFT_create(nfeatures=500)
+        keypoints, descriptors = sift.detectAndCompute(img, None)
+        
+        if descriptors is None or len(descriptors) == 0:
+            return None
+        return descriptors.astype(np.float32)
+    except Exception:
+        return None
+
+
+def _extract_orb_global(image_path: str) -> Optional[np.ndarray]:
+    try:
+        img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            return None
+        
+        orb = cv2.ORB_create(nfeatures=500)
+        keypoints, descriptors = orb.detectAndCompute(img, None)
+        
+        if descriptors is None or len(descriptors) == 0:
+            return None
+        return descriptors.astype(np.float32)
+    except Exception:
+        return None
+
+
+def _extract_hog_global(image_path: str) -> Optional[np.ndarray]:
+    try:
+        img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
+        if img is None:
+            return None
+        
+        img = cv2.resize(img, (128, 128))
+        hog = cv2.HOGDescriptor()
+        descriptors = hog.compute(img)
+        
+        if descriptors is None or len(descriptors) == 0:
+            return None
+        return descriptors.reshape(-1, descriptors.shape[0]).astype(np.float32)
+    except Exception:
+        return None
+
+
+def _extract_mfcc_global(audio_path: str) -> Optional[np.ndarray]:
+    try:
+        y, sr = librosa.load(audio_path, sr=22050, duration=30.0)
+        if len(y) == 0:
+            return None
+        
+        mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, hop_length=512)
+        mfcc = mfcc.T
+        
+        if mfcc.shape[0] == 0:
+            return None
+        return mfcc.astype(np.float32)
+    except Exception:
+        return None
+
+
+def _extract_chroma_global(audio_path: str) -> Optional[np.ndarray]:
+    try:
+        y, sr = librosa.load(audio_path, sr=22050, duration=30.0)
+        if len(y) == 0:
+            return None
+        
+        chroma = librosa.feature.chroma_stft(y=y, sr=sr, hop_length=512)
+        chroma = chroma.T
+        
+        if chroma.shape[0] == 0:
+            return None
+        return chroma.astype(np.float32)
+    except Exception:
+        return None
+
+
+def _extract_spectral_global(audio_path: str) -> Optional[np.ndarray]:
+    try:
+        y, sr = librosa.load(audio_path, sr=22050, duration=30.0)
+        if len(y) == 0:
+            return None
+        
+        spectral_centroids = librosa.feature.spectral_centroid(y=y, sr=sr)[0]
+        spectral_rolloff = librosa.feature.spectral_rolloff(y=y, sr=sr)[0]
+        zero_crossing_rate = librosa.feature.zero_crossing_rate(y)[0]
+        
+        features = np.column_stack([spectral_centroids, spectral_rolloff, zero_crossing_rate])
+        
+        if features.shape[0] == 0:
+            return None
+        return features.astype(np.float32)
+    except Exception:
+        return None
+
+
 class MultimediaIndexBase:
 
     FEATURE_EXTRACTORS = {
@@ -116,44 +275,52 @@ class MultimediaIndexBase:
         
         return None
 
-    def build_codebook(self, filenames: List[str], n_workers: int = None, batch_size: int = 1000):
+    def build_codebook(self, filenames: List[str], n_workers: int = None, batch_size: int = 100):
+        
         if n_workers is None:
-            n_workers = min(4, os.cpu_count())
-
-        def extract_batch(batch_filenames):
-            batch_descriptors = []
-            for filename in batch_filenames:
-                features = self.extract_features(filename)
-                if features is not None and len(features) > 0:
-                    if len(features) > 1000:
-                        indices = np.random.choice(len(features), 1000, replace=False)
-                        features = features[indices]
-                    batch_descriptors.append(features)
-            return batch_descriptors
-
+            n_workers = min(4, os.cpu_count() or 1)
+        
+        logging.info(f"Construyendo codebook con {len(filenames)} archivos usando {n_workers} workers")
+        logging.info(f"Tamaño de batch: {batch_size}")
+        
+        batches = [filenames[i:i + batch_size] for i in range(0, len(filenames), batch_size)]
+        logging.info(f"Total de batches: {len(batches)}")
+        
+        batch_data_list = [
+            (batch, self.files_dir, self.feature_type, self.features_dir, self.cache_size)
+            for batch in batches
+        ]
+        
         all_descriptors = []
         
         with ProcessPoolExecutor(max_workers=n_workers) as executor:
-            batches = [filenames[i:i + batch_size] for i in range(0, len(filenames), batch_size)]
-            
-            future_to_batch = {executor.submit(extract_batch, batch): batch for batch in batches}
+            future_to_batch = {
+                executor.submit(_extract_features_batch_worker, batch_data): i
+                for i, batch_data in enumerate(batch_data_list)
+            }
             
             for future in as_completed(future_to_batch):
+                batch_idx = future_to_batch[future]
                 try:
                     batch_descriptors = future.result()
                     all_descriptors.extend(batch_descriptors)
+                    logging.info(f"Batch {batch_idx + 1}/{len(batches)} completado: {len(batch_descriptors)} archivos procesados")
                 except Exception as e:
-                    logging.error(f"Error processing batch: {e}")
-
+                    logging.error(f"Error en batch {batch_idx + 1}: {e}")
+        
         if len(all_descriptors) == 0:
             raise ValueError("No se pudieron extraer descriptores de ningún archivo")
 
+        logging.info(f"Combinando {len(all_descriptors)} conjuntos de descriptores...")
         combined_descriptors = np.vstack(all_descriptors)
+        logging.info(f"Total descriptores combinados: {len(combined_descriptors)}")
         
         if len(combined_descriptors) > 100000:
+            logging.info(f"Submuestreando de {len(combined_descriptors)} a 100000 descriptores")
             indices = np.random.choice(len(combined_descriptors), 100000, replace=False)
             combined_descriptors = combined_descriptors[indices]
 
+        logging.info(f"Entrenando codebook con {self.n_clusters} clusters...")
         kmeans = MiniBatchKMeans(
             n_clusters=self.n_clusters, 
             random_state=42, 
@@ -164,6 +331,8 @@ class MultimediaIndexBase:
         kmeans.fit(combined_descriptors)
 
         self.codebook = kmeans.cluster_centers_
+        logging.info(f"Codebook construido exitosamente: {self.codebook.shape}")
+        
         self._save_codebook()
         self._save_metadata()
 
