@@ -11,7 +11,7 @@ class SPIMIBuilder:
     def __init__(self, block_size_mb: int = None, temp_dir: str = "data/temp_blocks", max_buffers: int = None):
         if block_size_mb is None:
             available_memory_mb = psutil.virtual_memory().available // (1024 * 1024)
-            self.block_size_mb = max(50, available_memory_mb // 4)  # Usar 1/4 de la memoria disponible
+            self.block_size_mb = max(50, available_memory_mb // 4)  
         else:
             self.block_size_mb = block_size_mb
             
@@ -36,7 +36,7 @@ class SPIMIBuilder:
             self.merge_blocks(block_files, output_file)
             return output_file
         finally:
-            self._cleanup_temp_files()
+            self._cleanup_temp_files(output_file)
 
     def _process_documents_in_blocks(self, documents: Iterator, field_name: str):
         block_data = {}
@@ -65,12 +65,11 @@ class SPIMIBuilder:
                 for token, tf in term_freq.items():
                     if token not in block_data:
                         block_data[token] = []
-                        current_size_in_bytes += len(token.encode('utf-8')) + 64  # overhead
+                        current_size_in_bytes += len(token.encode('utf-8')) + 64  
                     
                     block_data[token].append((doc_id, tf))
                     current_size_in_bytes += 16 
                     if current_size_in_bytes >= block_size_bytes:
-                        print(f"Bloque {self.block_counter} completado con {len(block_data)} términos únicos")
                         block_file = self._create_block(block_data)
                         block_files.append(block_file)
                         block_data = {}
@@ -278,13 +277,15 @@ class SPIMIBuilder:
             'percent': memory.percent
         }
 
-    def _cleanup_temp_files(self):
+    def _cleanup_temp_files(self, output_file: str = None):
         try:
             if os.path.exists(self.temp_dir):
                 for fname in os.listdir(self.temp_dir):
                     path = os.path.join(self.temp_dir, fname)
                     try:
                         if os.path.isfile(path):
+                            if output_file and os.path.abspath(path) == os.path.abspath(output_file):
+                                continue
                             os.remove(path)
                     except Exception as e:
                         print(f"Error eliminando {path}: {e}")

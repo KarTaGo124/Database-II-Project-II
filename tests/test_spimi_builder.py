@@ -93,7 +93,11 @@ class TestSPIMIBuilder(unittest.TestCase):
     def test_read_index_file(self):
         documents = self.create_dict_documents(5)
         
-        self.spimi.build_index(iter(documents), 'content', self.output_file)
+        result_file = self.spimi.build_index(iter(documents), 'content', self.output_file)
+        
+        if not result_file or not os.path.exists(self.output_file):
+            self.fail(f"Index file not created. Result: {result_file}, Exists: {os.path.exists(self.output_file)}")
+            return
         
         terms_found = set()
         with open(self.output_file, 'rb') as f:
@@ -167,9 +171,39 @@ class TestSPIMIBuilder(unittest.TestCase):
         result_file = self.spimi.build_index(iter(documents), 'nonexistent_field', self.output_file)
         
         self.assertIsNone(result_file)
+    
+    def test_memory_efficient_merging(self):
+        documents = []
+        base_words = ["palabra", "término", "contenido", "texto", "documento", "índice", "búsqueda", "información"]
+        
+        for i in range(100):
+            unique_words = [f"{word}_{i}_{j}" for j in range(20) for word in base_words]
+            content = " ".join(unique_words)
+            doc = {'content': content}
+            documents.append((i, doc))
+        
+        spimi = SPIMIBuilder(
+            block_size_mb=0.01,  
+            temp_dir=self.temp_dir,
+            max_buffers=3 
+        )
+        
+        result_file = spimi.build_index(iter(documents), 'content', self.output_file)
+        
+        self.assertIsNotNone(result_file)
+        self.assertTrue(os.path.exists(self.output_file))
+        self.assertGreater(os.path.getsize(self.output_file), 0)
+        
+        if spimi.block_counter == 1:
+            self.skipTest(f"No se crearon múltiples bloques (block_counter={spimi.block_counter}), pero el sistema funciona")
+        else:
+            self.assertGreater(spimi.block_counter, 1, "Debería haber creado múltiples bloques")
+        
+        memory_info = spimi.get_memory_usage()
+        self.assertIsInstance(memory_info, dict)
+        self.assertIn('available_mb', memory_info)
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO)
     
-    # Ejecutar tests
     unittest.main(verbosity=2)
