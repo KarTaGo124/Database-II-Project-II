@@ -66,8 +66,19 @@ class MultimediaInverted(MultimediaIndexBase):
         self.norms = norms
         
         self._persist()
+        
     def search(self, query_filename: str, top_k: int = 8) -> OperationResult:
-        pass
+        query_vec = self.get_tf_idf_vector(query_filename)
+        if query_vec is None:
+            return OperationResult(data=[], execution_time_ms=0, disk_reads=0, disk_writes=0)
+
+        scores = {}
+        for codeword_id, q_weight in enumerate(query_vec):
+            postings = self._read_postings_list(codeword_id)
+            for doc_id, tf in postings:
+                doc_weight = tf * self.idf.get(codeword_id, 0.0)
+                scores[doc_id] = scores.get(doc_id, 0.0) + q_weight * doc_weight
+
 
     def _read_postings_list(self, codeword_id: int):
         pass
