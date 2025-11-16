@@ -37,7 +37,19 @@ class MultimediaInverted(MultimediaIndexBase):
         ram_to_use = int(total_ram * 0.8)
         bytes_per_hist = self.n_clusters * 4
         batch_size = max(1, ram_to_use // (bytes_per_hist * 2))  # factor 2 por seguridad
+        all_histograms = {}
+        for batch_start in range(0, len(filenames), batch_size):
+            batch_files = filenames[batch_start:batch_start + batch_size]
+            batch_doc_ids = doc_ids[batch_start:batch_start + batch_size]
 
+            from concurrent.futures import ProcessPoolExecutor
+            with ProcessPoolExecutor() as executor:
+                results = list(executor.map(
+                    lambda f: self.build_histogram(f, normalize=True), batch_files
+                ))
+            for doc_id, hist in zip(batch_doc_ids, results):
+                if hist is not None:
+                    all_histograms[doc_id] = hist
     def search(self, query_filename: str, top_k: int = 8) -> OperationResult:
         pass
 
