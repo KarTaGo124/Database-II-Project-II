@@ -9,7 +9,6 @@ start: stmt (";" stmt)* ";"?
      | insert_stmt
      | delete_stmt
 
-# ===== CREATE TABLE =====
 KEY: "KEY"
 create_table: "CREATE" "TABLE" IDENT "(" coldef ("," coldef)* ")"
 coldef: IDENT type_spec [KEY] ["INDEX" index_kind]
@@ -21,42 +20,35 @@ type_spec: "INT"                               -> t_int
          | "ARRAY" "[" "FLOAT" "]"             -> t_array_2d
          | "ARRAY" "[" "FLOAT" "," SIGNED_INT "]" -> t_array_nd
 
-INDEX_KIND: "SEQUENTIAL" | "ISAM" | "BTREE" | "RTREE" | "HASH"
+INDEX_KIND: "SEQUENTIAL" | "ISAM" | "BTREE" | "RTREE" | "HASH" | "INVERTED_TEXT"
 index_kind: INDEX_KIND
 ident_or_string: IDENT | STRING
 
-# ===== LOAD DATA FROM FILE =====
 load_data: "LOAD" "DATA" "FROM" "FILE" STRING "INTO" IDENT ["WITH" "MAPPING" "(" column_mapping ("," column_mapping)* ")"]
 
 column_mapping: IDENT "=" "ARRAY" "(" IDENT ("," IDENT)* ")"
 
-# ===== CREATE INDEX =====
-create_index: "CREATE" "INDEX" "ON" IDENT "(" IDENT ")" "USING" index_kind
+create_index: "CREATE" "INDEX" "ON" IDENT "(" IDENT ")" "USING" index_kind ["LANGUAGE" STRING]
 
-# ===== DROP TABLE =====
 drop_table: "DROP" "TABLE" IDENT
 
-# ===== DROP INDEX =====
 drop_index: "DROP" "INDEX" IDENT "ON" IDENT
 
-# ===== SELECT =====
 select_all: "*"
 select_cols: col_list
-select_stmt: "SELECT" (select_all | select_cols) "FROM" IDENT ["WHERE" predicate]
+select_stmt: "SELECT" (select_all | select_cols) "FROM" IDENT ["WHERE" predicate] ["LIMIT" number]
 
 ?predicate: IDENT "=" literal                                    -> pred_eq
-          | IDENT "BETWEEN" literal "AND" literal            -> pred_between
-          | IDENT "IN" "(" spatial_point "," number ")"      -> pred_in
+          | IDENT "BETWEEN" literal "AND" literal                -> pred_between
+          | IDENT "IN" "(" spatial_point "," number ")"          -> pred_in
           | IDENT "NEAREST" "(" spatial_point "," SIGNED_INT ")" -> pred_nearest
-
-# ===== INSERT =====
+          | IDENT "@@" STRING                                    -> pred_fulltext
+          
 insert_stmt: "INSERT" "INTO" IDENT ["(" col_list ")"] "VALUES" "(" literal ("," literal)* ")"
 col_list: IDENT ("," IDENT)*
 
-# ===== DELETE =====
 delete_stmt: "DELETE" "FROM" IDENT "WHERE" predicate
 
-# ===== Básicos =====
 spatial_point: "(" number ("," number)* ")"
 number: SIGNED_INT   -> int_lit
       | SIGNED_FLOAT -> float_lit

@@ -3,7 +3,7 @@ from .plan_types import (
     CreateTablePlan, LoadDataPlan,
     SelectPlan, InsertPlan, DeletePlan,
     CreateIndexPlan, DropTablePlan, DropIndexPlan,
-    PredicateEq, PredicateBetween, PredicateInPointRadius, PredicateKNN,
+    PredicateEq, PredicateBetween, PredicateInPointRadius, PredicateKNN, PredicateFulltext,
 )
 
 from lark import Lark, Transformer, Token
@@ -90,10 +90,12 @@ class _T(Transformer):
         coltype = items[1]
         is_key = False
         index = None
-        VALID = {"SEQUENTIAL", "ISAM", "BTREE", "RTREE", "HASH"}
+        VALID = {"SEQUENTIAL", "ISAM", "BTREE", "RTREE", "HASH", "INVERTED_TEXT"}
         for it in items[2:]:
             if it == "KEY":
                 is_key = True
+                if coltype.kind != "INT":
+                    raise ValueError("Only INT columns can be PRIMARY KEY")
             elif it is None:
                 continue
             else:
@@ -159,12 +161,28 @@ class _T(Transformer):
         k = int(items[2])
         return PredicateKNN(column=col, point=pt, k=k)
 
+    def pred_fulltext(self, items):
+        col = str(items[0])
+        query = items[1]
+        if isinstance(query, Token):
+            query = query.value[1:-1]  # Quitar comillas
+        return PredicateFulltext(column=col, query=str(query))
+
     def select_stmt(self, items):
         cols_or_none = items[0]
         table = _tok2str(items[1])
-        where = items[2] if len(items) > 2 else None
-        return SelectPlan(table=table, columns=cols_or_none, where=where)
-
+        where = None
+        limit = None
+        
+        for item in items[2:]:
+            if item is None:
+                continue
+            if isinstance(item, int):
+                limit = item
+            else:
+                where = item
+        
+        return SelectPlan(table=table, columns=cols_or_none, where=where, limit=limit)
 
     # ==== INSERT ====
     def insert_stmt(self, items):
@@ -191,7 +209,17 @@ class _T(Transformer):
         table = _tok2str(items[0])
         column = _tok2str(items[1])
         index_type = _tok2str(items[2])
-        return CreateIndexPlan(index_name=column, table=table, column=column, index_type=index_type)
+        language = "spanish"
+        if len(items) > 3 and items[3] is not None:
+            lang_token = items[3]
+            if isinstance(lang_token, Token):
+                if lang_token.type == "STRING":
+                    language = lang_token.value[1:-1]
+                else:
+                    language = lang_token.value
+            elif lang_token is not None:
+                language = str(lang_token)
+        return CreateIndexPlan(index_name=column, table=table, column=column, index_type=index_type, language=language)
 
     # ==== DROP TABLE ====
     def drop_table(self, items):

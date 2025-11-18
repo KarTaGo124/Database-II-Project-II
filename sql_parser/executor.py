@@ -3,7 +3,7 @@ from typing import Dict, Any, List, Tuple, Optional
 from .plan_types import (
     CreateTablePlan, LoadDataPlan, SelectPlan, InsertPlan, DeletePlan,
     CreateIndexPlan, DropTablePlan, DropIndexPlan,
-    ColumnDef, ColumnType, PredicateEq, PredicateBetween, PredicateInPointRadius, PredicateKNN
+    ColumnDef, ColumnType, PredicateEq, PredicateBetween, PredicateInPointRadius, PredicateKNN, PredicateFulltext
 )
 from indexes.core.record import Table, Record
 from indexes.core.performance_tracker import OperationResult
@@ -185,13 +185,19 @@ class Executor:
             user_fields = [(name, ftype, fsize) for (name, ftype, fsize) in phys_fields
                           if name not in ['active']]
 
+            key_in_csv = key_field in header
+            auto_increment_counter = 1
+
             for row_values in reader:
                 rec = Record(phys_fields, key_field)
                 ok_row = True
 
                 for field_name, field_type, field_size in user_fields:
                     try:
-                        if field_type == "ARRAY" and plan.column_mappings and field_name in plan.column_mappings:
+                        if field_name == key_field and not key_in_csv:
+                            rec.set_field_value(field_name, auto_increment_counter)
+
+                        elif field_type == "ARRAY" and plan.column_mappings and field_name in plan.column_mappings:
                             csv_column_names = plan.column_mappings[field_name]
                             array_values = []
                             
@@ -249,8 +255,14 @@ class Executor:
                         duplicates += 1
                     else:
                         inserted += 1
+
+                    if not key_in_csv:
+                        auto_increment_counter += 1
+                        
                 except Exception as e:
                     cast_err += 1
+                    if not key_in_csv:
+                        auto_increment_counter += 1
                     continue
 
         self.db.warm_up_indexes(plan.table)
@@ -284,6 +296,10 @@ class Executor:
                     except UnicodeDecodeError:
                         val = val.decode("utf-8", errors="replace").rstrip("\x00").strip()
                 obj[c] = val
+            
+            if hasattr(r, '_text_score'):
+                obj['_text_score'] = r._text_score
+            
             out.append(obj)
         return out
 
@@ -326,6 +342,30 @@ class Executor:
             projected_data = self._project_records(res.data, plan.columns)
             return OperationResult(projected_data, res.execution_time_ms, res.disk_reads, res.disk_writes, res.rebuild_triggered, res.operation_breakdown)
 
+        if isinstance(where, PredicateFulltext):
+            col = where.column
+            query = where.query
+            
+            table_info = self.db.tables.get(table)
+            if not table_info:
+                raise ValueError(f"Tabla {table} no existe")
+            
+            if col not in table_info["secondary_indexes"]:
+                raise ValueError(f"El campo '{col}' no tiene un índice secundario. Use CREATE INDEX para crear un índice INVERTED_TEXT primero.")
+            
+            index_type = table_info["secondary_indexes"][col]["type"]
+            if index_type != "INVERTED_TEXT":
+                raise ValueError(f"El operador @@ requiere un índice INVERTED_TEXT en el campo '{col}'. Actualmente tiene índice {index_type}.")
+            
+            limit = plan.limit if plan.limit else None
+
+            res = self.db.search(table, query, field_name=col, limit=limit)
+
+            data_list = res.data if isinstance(res.data, list) else []
+            
+            projected_data = self._project_records(data_list, plan.columns)
+            return OperationResult(projected_data, res.execution_time_ms, res.disk_reads, res.disk_writes, res.rebuild_triggered, res.operation_breakdown)
+        
         raise NotImplementedError("Predicado WHERE no soportado")
 
     # ====== INSERT ======
@@ -427,7 +467,7 @@ class Executor:
             if not self.db._validate_secondary_index(plan.index_type.upper()):
                 return OperationResult(f"ERROR: Tipo de índice '{plan.index_type}' no soportado", 0, 0, 0)
 
-            result = self.db.create_index(plan.table, plan.column, plan.index_type.upper())
+            result = self.db.create_index(plan.table, plan.column, plan.index_type.upper(), language=plan.language)
             return OperationResult(
                 f"OK: Índice creado en {plan.table}.{plan.column} usando {plan.index_type.upper()}: {result.data}",
                 result.execution_time_ms,
