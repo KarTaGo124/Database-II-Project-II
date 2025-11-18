@@ -1,0 +1,228 @@
+{
+  "amazon1000": {
+    "primary_type": "ISAM",
+    "fields": [
+      [
+        "doc_id",
+        "INT",
+        4
+      ],
+      [
+        "text",
+        "CHAR",
+        5000
+      ]
+    ],
+    "key_field": "doc_id",
+    "secondary_indexes": {
+      "text": {
+        "type": "INVERTED_TEXT",
+        "language": "english"
+      }
+    }
+  },
+  "amazon2000": {
+    "primary_type": "ISAM",
+    "fields": [
+      [
+        "doc_id",
+        "INT",
+        4
+      ],
+      [
+        "text",
+        "CHAR",
+        5000
+      ]
+    ],
+    "key_field": "doc_id",
+    "secondary_indexes": {
+      "text": {
+        "type": "INVERTED_TEXT",
+        "language": "spanish"
+      }
+    }
+  },
+  "amazon4000": {
+    "primary_type": "ISAM",
+    "fields": [
+      [
+        "doc_id",
+        "INT",
+        4
+      ],
+      [
+        "text",
+        "CHAR",
+        5000
+      ]
+    ],
+    "key_field": "doc_id",
+    "secondary_indexes": {
+      "text": {
+        "type": "INVERTED_TEXT",
+        "language": "english"
+      }
+    }
+  },
+  "amazon8000": {
+    "primary_type": "ISAM",
+    "fields": [
+      [
+        "doc_id",
+        "INT",
+        4
+      ],
+      [
+        "text",
+        "CHAR",
+        5000
+      ]
+    ],
+    "key_field": "doc_id",
+    "secondary_indexes": {
+      "text": {
+        "type": "INVERTED_TEXT",
+        "language": "english"
+      }
+    }
+  },
+  "amazon16000": {
+    "primary_type": "ISAM",
+    "fields": [
+      [
+        "doc_id",
+        "INT",
+        4
+      ],
+      [
+        "text",
+        "CHAR",
+        5000
+      ]
+    ],
+    "key_field": "doc_id",
+    "secondary_indexes": {
+      "text": {
+        "type": "INVERTED_TEXT",
+        "language": "english"
+      }
+    }
+  },
+  "amazon32000": {
+    "primary_type": "ISAM",
+    "fields": [
+      [
+        "doc_id",
+        "INT",
+        4
+      ],
+      [
+        "text",
+        "CHAR",
+        5000
+      ]
+    ],
+    "key_field": "doc_id",
+    "secondary_indexes": {
+      "text": {
+        "type": "INVERTED_TEXT",
+        "language": "english"
+      }
+    }
+  },
+  "amazon64000": {
+    "primary_type": "ISAM",
+    "fields": [
+      [
+        "doc_id",
+        "INT",
+        4
+      ],
+      [
+        "text",
+        "CHAR",
+        5000
+      ]
+    ],
+    "key_field": "doc_id",
+    "secondary_indexes": {
+      "text": {
+        "type": "INVERTED_TEXT",
+        "language": "english"
+      }
+    }
+  },
+  "amazon64k": {
+    "primary_type": "ISAM",
+    "fields": [
+      [
+        "doc_id",
+        "INT",
+        4
+      ],
+      [
+        "text",
+        "CHAR",
+        5000
+      ]
+    ],
+    "key_field": "doc_id",
+    "secondary_indexes": {}
+  },
+  "Restaurantes": {
+    "primary_type": "BTREE",
+    "fields": [
+      [
+        "id",
+        "INT",
+        4
+      ],
+      [
+        "nombre",
+        "CHAR",
+        100
+      ],
+      [
+        "ubicacion",
+        "ARRAY",
+        2
+      ],
+      [
+        "rating",
+        "FLOAT",
+        4
+      ],
+      [
+        "precio_promedio",
+        "FLOAT",
+        4
+      ],
+      [
+        "fecha_apertura",
+        "CHAR",
+        20
+      ],
+      [
+        "ciudad",
+        "CHAR",
+        50
+      ]
+    ],
+    "key_field": "id",
+    "secondary_indexes": {
+      "nombre": {
+        "type": "BTREE",
+        "language": null
+      },
+      "ubicacion": {
+        "type": "RTREE",
+        "language": null
+      },
+      "rating": {
+        "type": "HASH",
+        "language": null
+      }
+    }
+  }
+}

@@ -4,13 +4,16 @@ import struct
 import heapq
 from typing import List, Dict, Iterator, Tuple
 
+import psutil
+
 from .text_preprocessor import TextPreprocessor
 
 class SPIMIBuilder:
     def __init__(self, block_size_mb: int = 50, temp_dir: str = "data/temp_blocks", max_buffers: int = 10):
         self.block_size_mb = block_size_mb
         self.temp_dir = temp_dir
-        self.max_buffers = max_buffers
+        available_ram_mb = psutil.virtual_memory().available / (1024 * 1024)
+        self.max_buffers = max(10, int(available_ram_mb / block_size_mb))
         self.preprocessor = TextPreprocessor()
         self.block_counter = 0
         self.merge_pass_counter = 0
