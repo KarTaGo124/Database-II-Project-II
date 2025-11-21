@@ -175,13 +175,16 @@ class Executor:
             first_line = fh_probe.readline()
             delimiter = self._guess_delimiter(first_line)
 
+        tinfo = self.db.tables.get(plan.table)
+        use_bulk_insert = tinfo and tinfo.get("primary_type") == "SEQUENTIAL"
+        bulk_records = []
+
         with open(plan.filepath, "r", encoding="utf-8", newline="") as f:
             reader = csv.reader(f, delimiter=delimiter)
             header = next(reader, None)
             if not header:
                 return OperationResult("CSV vacío: insertados=0", 0, 0, 0)
 
-            # Excluir campos internos (active, etc) que no vienen del CSV
             user_fields = [(name, ftype, fsize) for (name, ftype, fsize) in phys_fields
                           if name not in ['active']]
 
@@ -200,7 +203,7 @@ class Executor:
                         elif field_type == "ARRAY" and plan.column_mappings and field_name in plan.column_mappings:
                             csv_column_names = plan.column_mappings[field_name]
                             array_values = []
-                            
+
                             for csv_col in csv_column_names:
                                 try:
                                     csv_idx = header.index(csv_col)
@@ -211,13 +214,13 @@ class Executor:
                                         array_values.append(0.0)
                                 except (ValueError, IndexError):
                                     array_values.append(0.0)
-                            
+
                             while len(array_values) < field_size:
                                 array_values.append(0.0)
                             array_values = array_values[:field_size]
-                            
+
                             rec.set_field_value(field_name, tuple(array_values))
-                            
+
                         elif field_type != "ARRAY":
                             try:
                                 csv_idx = header.index(field_name)
@@ -233,7 +236,7 @@ class Executor:
                             rec.set_field_value(field_name, val)
                         else:
                             rec.set_field_value(field_name, tuple([0.0] * field_size))
-                            
+
                     except Exception as e:
                         ok_row = False
                         break
@@ -245,25 +248,38 @@ class Executor:
                     cast_err += 1
                     continue
 
-                try:
-                    res = self.db.insert(plan.table, rec)
-                    total_reads += res.disk_reads
-                    total_writes += res.disk_writes
-                    total_time_ms += res.execution_time_ms
-
-                    if hasattr(res, "data") and (res.data is False):
-                        duplicates += 1
-                    else:
-                        inserted += 1
-
+                if use_bulk_insert:
+                    bulk_records.append(rec)
+                    inserted += 1
                     if not key_in_csv:
                         auto_increment_counter += 1
-                        
-                except Exception as e:
-                    cast_err += 1
-                    if not key_in_csv:
-                        auto_increment_counter += 1
-                    continue
+                else:
+                    try:
+                        res = self.db.insert(plan.table, rec)
+                        total_reads += res.disk_reads
+                        total_writes += res.disk_writes
+                        total_time_ms += res.execution_time_ms
+
+                        if hasattr(res, "data") and (res.data is False):
+                            duplicates += 1
+                        else:
+                            inserted += 1
+
+                        if not key_in_csv:
+                            auto_increment_counter += 1
+
+                    except Exception as e:
+                        cast_err += 1
+                        if not key_in_csv:
+                            auto_increment_counter += 1
+                        continue
+
+        if use_bulk_insert and bulk_records:
+            index_obj = self.db.tables[plan.table]["primary_index"]
+            res = index_obj.bulk_insert(bulk_records)
+            total_reads += res.disk_reads
+            total_writes += res.disk_writes
+            total_time_ms += res.execution_time_ms
 
         self.db.warm_up_indexes(plan.table)
 
