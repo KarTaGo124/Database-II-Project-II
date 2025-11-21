@@ -21,11 +21,6 @@ class DatabaseManager:
         "MULTIMEDIA": {"primary": False, "secondary": True}
     }
 
-    MULTIMEDIA_FEATURES = {
-        'image': ['SIFT'],
-        'audio': ['MFCC']
-    }
-
     def __init__(self, database_name: str = None, base_path: str = None):
         self.tables = {}
         self.database_name = database_name or "default"
@@ -115,12 +110,11 @@ class DatabaseManager:
                         total_writes = scan_result.disk_writes
                         total_time = scan_result.execution_time_ms
 
-                        import time
-                        build_start = time.time()
-                        secondary_index.build(existing_records)
-                        build_time = (time.time() - build_start) * 1000
-                        total_time += build_time
-                        
+                        build_result = secondary_index.build(existing_records)
+                        total_reads += build_result.disk_reads
+                        total_writes += build_result.disk_writes
+                        total_time += build_result.execution_time_ms
+
                         records_indexed = len(existing_records)
 
                     except Exception as e:
@@ -262,13 +256,13 @@ class DatabaseManager:
                 if not secondary_result.data:
                     breakdown = {
                         "primary_metrics": {"reads": 0, "writes": 0, "time_ms": 0},
-                        "secondary_metrics": {"reads": 0, "writes": 0, "time_ms": secondary_result.execution_time_ms}
+                        "secondary_metrics": {"reads": secondary_result.disk_reads, "writes": secondary_result.disk_writes, "time_ms": secondary_result.execution_time_ms}
                     }
-                    return OperationResult([], secondary_result.execution_time_ms, 0, 0, operation_breakdown=breakdown)
+                    return OperationResult([], secondary_result.execution_time_ms, secondary_result.disk_reads, secondary_result.disk_writes, operation_breakdown=breakdown)
 
                 total_time = secondary_result.execution_time_ms
-                total_reads = 0
-                total_writes = 0
+                total_reads = secondary_result.disk_reads
+                total_writes = secondary_result.disk_writes
 
                 primary_lookup_reads = 0
                 primary_lookup_writes = 0
@@ -293,7 +287,7 @@ class DatabaseManager:
 
                 breakdown = {
                     "primary_metrics": {"reads": primary_lookup_reads, "writes": primary_lookup_writes, "time_ms": primary_lookup_time},
-                    "secondary_metrics": {"reads": 0, "writes": 0, "time_ms": secondary_result.execution_time_ms}
+                    "secondary_metrics": {"reads": secondary_result.disk_reads, "writes": secondary_result.disk_writes, "time_ms": secondary_result.execution_time_ms}
                 }
 
                 return OperationResult(matching_records, total_time, total_reads, total_writes, operation_breakdown=breakdown)

@@ -161,6 +161,7 @@ class BPlusTreeUnclusteredIndex:
         self.min_keys = (order + 1) // 2 - 1
         self.file_path = file_path + ".dat"
         self.performance = PerformanceTracker()
+        self._file_handle = None
 
         self.root_node_id = self.FIRST_DATA_NODE_ID
         self.next_available_node_id = self.FIRST_DATA_NODE_ID + 1
@@ -415,6 +416,11 @@ class BPlusTreeUnclusteredIndex:
     def _get_node_offset(self, node_id: int) -> int:
         return node_id * self.NODE_SIZE
 
+    def _ensure_file_open(self):
+        if self._file_handle is None or self._file_handle.closed:
+            self._file_handle = open(self.file_path, 'r+b', buffering=0)
+        return self._file_handle
+
     def _read_node(self, node_id: int) -> Optional[Node]:
         if node_id is None or node_id == self.METADATA_NODE_ID:
             return None
@@ -427,40 +433,39 @@ class BPlusTreeUnclusteredIndex:
         try:
             offset = self._get_node_offset(node_id)
 
-            with open(self.file_path, 'rb') as f:
-                f.seek(offset)
-                node_bytes = f.read(self.NODE_SIZE)
+            f = self._ensure_file_open()
+            f.seek(offset)
+            node_bytes = f.read(self.NODE_SIZE)
 
+            if len(node_bytes) < 13 or (node_bytes[0] == 0 and node_bytes[1] == 0):
+                return None
 
-                if len(node_bytes) < 13 or (node_bytes[0] == 0 and node_bytes[1] == 0):
-                    return None
+            try:
+                node_type = struct.unpack('?', node_bytes[0:1])[0]
+                num_keys = struct.unpack('i', node_bytes[1:5])[0]
+                node_id_read = struct.unpack('i', node_bytes[5:9])[0]
+                parent_id = struct.unpack('i', node_bytes[9:13])[0]
+            except struct.error as e:
+                return None
 
-                try:
-                    node_type = struct.unpack('?', node_bytes[0:1])[0]
-                    num_keys = struct.unpack('i', node_bytes[1:5])[0]
-                    node_id_read = struct.unpack('i', node_bytes[5:9])[0]
-                    parent_id = struct.unpack('i', node_bytes[9:13])[0]
-                except struct.error as e:
-                    return None
-                
-                if parent_id == self.NULL_NODE_ID:
-                    parent_id = None
+            if parent_id == self.NULL_NODE_ID:
+                parent_id = None
 
-                data_offset = 13
-                normalize_key = self.key_type == "CHAR"
+            data_offset = 13
+            normalize_key = self.key_type == "CHAR"
 
-                if node_type:
-                    return LeafNode.unpack(
-                        node_bytes, data_offset, num_keys, node_id_read, parent_id,
-                        self._unpack_key, self.key_storage_size, self.index_record_size,
-                        self.index_record_class, self.value_type_size, "index_value",
-                        self.NULL_NODE_ID, normalize_key
-                    )
-                else:
-                    return InternalNode.unpack(
-                        node_bytes, data_offset, num_keys, node_id_read, parent_id,
-                        self._unpack_key, self.key_storage_size, normalize_key
-                    )
+            if node_type:
+                return LeafNode.unpack(
+                    node_bytes, data_offset, num_keys, node_id_read, parent_id,
+                    self._unpack_key, self.key_storage_size, self.index_record_size,
+                    self.index_record_class, self.value_type_size, "index_value",
+                    self.NULL_NODE_ID, normalize_key
+                )
+            else:
+                return InternalNode.unpack(
+                    node_bytes, data_offset, num_keys, node_id_read, parent_id,
+                    self._unpack_key, self.key_storage_size, normalize_key
+                )
 
         except Exception as e:
             print(f"Error reading node {node_id}: {e}")
@@ -497,10 +502,10 @@ class BPlusTreeUnclusteredIndex:
                 with open(self.file_path, 'ab') as f:
                     f.write(b'\x00' * (required_size - current_size))
 
-            with open(self.file_path, 'r+b') as f:
-                f.seek(offset)
-                f.write(padded_data)
-                f.flush()
+            f = self._ensure_file_open()
+            f.seek(offset)
+            f.write(padded_data)
+            f.flush()
 
         except Exception as e:
             print(f"Error writing node {node_id}: {e}")
@@ -516,10 +521,10 @@ class BPlusTreeUnclusteredIndex:
             offset = self._get_node_offset(node_id)
 
             if os.path.exists(self.file_path):
-                with open(self.file_path, 'r+b') as f:
-                    f.seek(offset)
-                    f.write(b'\x00' * self.NODE_SIZE)
-                    f.flush()
+                f = self._ensure_file_open()
+                f.seek(offset)
+                f.write(b'\x00' * self.NODE_SIZE)
+                f.flush()
         except Exception as e:
             print(f"Error deleting node {node_id}: {e}")
 
@@ -1300,3 +1305,11 @@ class BPlusTreeUnclusteredIndex:
             self.performance = PerformanceTracker()
         except:
             pass
+
+    def close(self):
+        if self._file_handle is not None and not self._file_handle.closed:
+            self._file_handle.close()
+            self._file_handle = None
+
+    def __del__(self):
+        self.close()

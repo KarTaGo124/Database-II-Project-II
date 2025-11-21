@@ -9,12 +9,12 @@ import psutil
 from .text_preprocessor import TextPreprocessor
 
 class SPIMIBuilder:
-    def __init__(self, block_size_mb: int = 50, temp_dir: str = "data/temp_blocks", max_buffers: int = 10):
+    def __init__(self, block_size_mb: int = 50, temp_dir: str = "data/temp_blocks", max_buffers: int = 10, language: str = "spanish"):
         self.block_size_mb = block_size_mb
         self.temp_dir = temp_dir
         available_ram_mb = psutil.virtual_memory().available / (1024 * 1024)
         self.max_buffers = max(10, int(available_ram_mb / block_size_mb))
-        self.preprocessor = TextPreprocessor()
+        self.preprocessor = TextPreprocessor(language=language)
         self.block_counter = 0
         self.merge_pass_counter = 0
         os.makedirs(self.temp_dir, exist_ok=True)
@@ -38,12 +38,13 @@ class SPIMIBuilder:
 
         for doc_id, doc in documents:
             text = getattr(doc, field_name, None)
+
             if not text:
                 continue
 
             if isinstance(text, bytes):
                 text = text.decode('utf-8', errors='ignore').rstrip('\x00').strip()
-                
+
             tokens = self.preprocessor.preprocess(text)
 
             term_freq = {}
@@ -196,7 +197,7 @@ class SPIMIBuilder:
                         block_readers[next_block_idx]["file_handle"].close()
 
                 merged_postings = self._merge_postings(postings_to_merge)
-                
+
                 term_bytes = current_term.encode('utf-8')
                 postings_bytes = pickle.dumps(merged_postings, protocol=pickle.HIGHEST_PROTOCOL)
 

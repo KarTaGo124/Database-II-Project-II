@@ -32,6 +32,8 @@ class InvertedTextIndex:
         self._load_if_exists()
 
     def build(self, records: List[Record]):
+        start_time = time.time()
+
         records_list = list(records) if not isinstance(records, list) else records
         self.num_documents = len(records_list)
 
@@ -40,9 +42,18 @@ class InvertedTextIndex:
         self._calculate_document_norms()
         self._persist()
 
+        execution_time = (time.time() - start_time) * 1000
+
+        return OperationResult(
+            data=True,
+            execution_time_ms=execution_time,
+            disk_reads=0,
+            disk_writes=0
+        )
+
     def _build_with_spimi(self, records: List[Record]):
         temp_dir = os.path.join(self.index_dir, "temp_blocks")
-        spimi = SPIMIBuilder(block_size_mb=50, temp_dir=temp_dir)
+        spimi = SPIMIBuilder(block_size_mb=50, temp_dir=temp_dir, language=self.language)
 
         def doc_generator():
             for record in records:
@@ -129,6 +140,9 @@ class InvertedTextIndex:
     def search(self, query: str, top_k: int = None) -> OperationResult:
         start_time = time.time()
 
+        self._ensure_idf_loaded()
+        self._ensure_doc_norms_loaded()
+
         query_terms = self._preprocess_query(query)
 
         if not query_terms:
@@ -140,7 +154,10 @@ class InvertedTextIndex:
             )
 
         query_vector = self._build_query_vector(query_terms)
-        scores = self._search_terms_in_index(query_vector)
+
+        with open(self.postings_file, 'rb') as f_postings:
+            scores = self._search_terms_in_index(query_vector, f_postings)
+
         top_results = self._get_top_k_documents(scores, top_k)
 
         execution_time = (time.time() - start_time) * 1000
@@ -168,11 +185,12 @@ class InvertedTextIndex:
 
         return query_vector
 
-    def _search_terms_in_index(self, query_vector: Dict[str, float]) -> Dict[int, float]:
+    def _search_terms_in_index(self, query_vector: Dict[str, float], f_postings) -> Dict[int, float]:
         doc_scores = {}
 
         for term, query_weight in query_vector.items():
-            postings = self._read_postings_list(term)
+            postings = self._read_postings_list(term, f_postings)
+
             if not postings:
                 continue
 
@@ -217,29 +235,28 @@ class InvertedTextIndex:
         results = [(doc_id, score) for score, doc_id in sorted(top_k_heap, reverse=True)]
         return results
 
-    def _read_postings_list(self, term: str) -> List[Tuple[int, int]]:
+    def _read_postings_list(self, term: str, f_postings) -> List[Tuple[int, int]]:
         if term not in self.vocabulary:
             return []
 
         offset = self.vocabulary[term]['offset']
 
         try:
-            with open(self.postings_file, 'rb') as f:
-                f.seek(offset)
+            f_postings.seek(offset)
 
-                term_len_bytes = f.read(4)
-                term_len = struct.unpack('I', term_len_bytes)[0]
-                stored_term = f.read(term_len).decode('utf-8')
+            term_len_bytes = f_postings.read(4)
+            term_len = struct.unpack('I', term_len_bytes)[0]
+            stored_term = f_postings.read(term_len).decode('utf-8')
 
-                if stored_term != term:
-                    return []
+            if stored_term != term:
+                return []
 
-                postings_len_bytes = f.read(4)
-                postings_len = struct.unpack('I', postings_len_bytes)[0]
-                postings_bytes = f.read(postings_len)
-                postings = pickle.loads(postings_bytes)
+            postings_len_bytes = f_postings.read(4)
+            postings_len = struct.unpack('I', postings_len_bytes)[0]
+            postings_bytes = f_postings.read(postings_len)
+            postings = pickle.loads(postings_bytes)
 
-                return postings
+            return postings
         except Exception:
             return []
 
@@ -263,16 +280,25 @@ class InvertedTextIndex:
             with open(self.vocabulary_file, 'rb') as f:
                 self.vocabulary = pickle.load(f)
 
-        if os.path.exists(self.doc_norms_file):
-            with open(self.doc_norms_file, 'rb') as f:
-                self.doc_norms = pickle.load(f)
-
-        idf_file = os.path.join(self.index_dir, 'idf.dat')
-        if os.path.exists(idf_file):
-            with open(idf_file, 'rb') as f:
-                self.idf = pickle.load(f)
+        self._idf_loaded = False
+        self._doc_norms_loaded = False
 
         self._load_metadata()
+
+    def _ensure_idf_loaded(self):
+        if not self._idf_loaded:
+            idf_file = os.path.join(self.index_dir, 'idf.dat')
+            if os.path.exists(idf_file):
+                with open(idf_file, 'rb') as f:
+                    self.idf = pickle.load(f)
+            self._idf_loaded = True
+
+    def _ensure_doc_norms_loaded(self):
+        if not self._doc_norms_loaded:
+            if os.path.exists(self.doc_norms_file):
+                with open(self.doc_norms_file, 'rb') as f:
+                    self.doc_norms = pickle.load(f)
+            self._doc_norms_loaded = True
 
     def _save_metadata(self):
         os.makedirs(self.index_dir, exist_ok=True)
