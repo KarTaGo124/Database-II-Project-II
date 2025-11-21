@@ -8,4 +8,5 @@ librosa
 numpy
 scipy
 pillow
-opencv-python
+psutil
+psycopg2-binary
