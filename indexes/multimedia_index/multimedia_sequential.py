@@ -26,7 +26,8 @@ class MultimediaSequential(MultimediaIndexBase):
         super().__init__(index_dir, files_dir, field_name, feature_type, n_clusters)
 
     def build(self, records, use_multiprocessing: bool = True, n_workers: int = None):
-       
+        start_time = time.time()
+
         filenames = []
         doc_ids = []
         for rec in records:
@@ -73,6 +74,14 @@ class MultimediaSequential(MultimediaIndexBase):
         self.norms = {doc_id: np.linalg.norm(hist) for doc_id, hist in self.histograms.items()}
 
         self._persist()
+
+        elapsed = (time.time() - start_time) * 1000
+        return OperationResult(
+            data=f"Built sequential index with {len(self.histograms)} files",
+            execution_time_ms=elapsed,
+            disk_reads=len(filenames),
+            disk_writes=4
+        )
 
     def search(self, query_filename: str, top_k: int = 8) -> OperationResult:
         start_time = time.time()
