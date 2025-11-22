@@ -57,6 +57,11 @@ class PredicateFulltext:
     query: str
 
 @dataclass
+class PredicateMultimedia:
+    column: str
+    query_path: str
+
+@dataclass
 class SelectPlan:
     table: str
     columns: Optional[List[str]]
@@ -81,6 +86,7 @@ class CreateIndexPlan:
     column: str
     index_type: str
     language: str = "spanish"
+    feature_type: str = "SIFT"
 
 @dataclass
 class DropTablePlan:

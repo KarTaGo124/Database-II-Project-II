@@ -20,7 +20,7 @@ type_spec: "INT"                               -> t_int
          | "ARRAY" "[" "FLOAT" "]"             -> t_array_2d
          | "ARRAY" "[" "FLOAT" "," SIGNED_INT "]" -> t_array_nd
 
-INDEX_KIND: "SEQUENTIAL" | "ISAM" | "BTREE" | "RTREE" | "HASH" | "INVERTED_TEXT"
+INDEX_KIND: "SEQUENTIAL" | "ISAM" | "BTREE" | "RTREE" | "HASH" | "INVERTED_TEXT" | "MULTIMEDIA_SEQ" | "MULTIMEDIA_INV"
 index_kind: INDEX_KIND
 ident_or_string: IDENT | STRING
 
@@ -28,7 +28,7 @@ load_data: "LOAD" "DATA" "FROM" "FILE" STRING "INTO" IDENT ["WITH" "MAPPING" "("
 
 column_mapping: IDENT "=" "ARRAY" "(" IDENT ("," IDENT)* ")"
 
-create_index: "CREATE" "INDEX" "ON" IDENT "(" IDENT ")" "USING" index_kind ["LANGUAGE" STRING]
+create_index: "CREATE" "INDEX" "ON" IDENT "(" IDENT ")" "USING" index_kind ["LANGUAGE" STRING] ["FEATURE" STRING]
 
 drop_table: "DROP" "TABLE" IDENT
 
@@ -43,6 +43,7 @@ select_stmt: "SELECT" (select_all | select_cols) "FROM" IDENT ["WHERE" predicate
           | IDENT "IN" "(" spatial_point "," number ")"          -> pred_in
           | IDENT "NEAREST" "(" spatial_point "," SIGNED_INT ")" -> pred_nearest
           | IDENT "@@" STRING                                    -> pred_fulltext
+          | IDENT "<->" STRING                                   -> pred_multimedia
           
 insert_stmt: "INSERT" "INTO" IDENT ["(" col_list ")"] "VALUES" "(" literal ("," literal)* ")"
 col_list: IDENT ("," IDENT)*
