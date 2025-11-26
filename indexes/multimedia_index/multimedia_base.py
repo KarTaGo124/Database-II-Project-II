@@ -188,13 +188,14 @@ class MultimediaIndexBase:
     AUDIO_EXTENSIONS = ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac']
 
     def __init__(self, index_dir: str, files_dir: str, field_name: str,
-                 feature_type: str, n_clusters: int = 100, cache_size: int = 1000):
+                 feature_type: str, n_clusters: int = 100, cache_size: int = 1000, filename_pattern: str = None):
         self.index_dir = index_dir
         self.files_dir = files_dir
         self.field_name = field_name
         self.feature_type = feature_type
         self.n_clusters = n_clusters
         self.cache_size = cache_size
+        self.filename_pattern = filename_pattern
 
         os.makedirs(index_dir, exist_ok=True)
         self.features_dir = files_dir.replace("_files", "_features")
@@ -232,6 +233,14 @@ class MultimediaIndexBase:
 
     def get_file_path(self, filename: str) -> str:
         return os.path.join(self.files_dir, filename)
+
+    def resolve_filename(self, record) -> str:
+        if self.filename_pattern:
+            key_value = record.get_key()
+            resolved = self.filename_pattern.replace("{id}", str(key_value))
+            return resolved
+        else:
+            return getattr(record, self.field_name, None)
 
     def _get_features_save_path(self, filename: str) -> str:
         base_name = os.path.splitext(filename)[0]

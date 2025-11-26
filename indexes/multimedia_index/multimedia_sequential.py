@@ -11,7 +11,7 @@ from ..core.performance_tracker import OperationResult
 class MultimediaSequential(MultimediaIndexBase):
 
     def __init__(self, index_dir: str, files_dir: str, field_name: str,
-                 feature_type: str, n_clusters: int = 100):
+                 feature_type: str, n_clusters: int = 100, filename_pattern: str = None):
         self.method_dir = os.path.join(index_dir, "sequential")
         os.makedirs(self.method_dir, exist_ok=True)
 
@@ -23,7 +23,7 @@ class MultimediaSequential(MultimediaIndexBase):
         self.histograms = {}
         self.norms = {}
 
-        super().__init__(index_dir, files_dir, field_name, feature_type, n_clusters)
+        super().__init__(index_dir, files_dir, field_name, feature_type, n_clusters, filename_pattern=filename_pattern)
 
     def build(self, records, use_multiprocessing: bool = True, n_workers: int = None):
         start_time = time.time()
@@ -31,7 +31,7 @@ class MultimediaSequential(MultimediaIndexBase):
         filenames = []
         doc_ids = []
         for rec in records:
-            fname = getattr(rec, self.field_name, None)
+            fname = self.resolve_filename(rec)
             if fname:
                 filenames.append(fname)
                 doc_ids.append(rec.get_key())
