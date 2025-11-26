@@ -214,7 +214,7 @@ class _T(Transformer):
     # ==== CREATE INDEX ====
     def create_index(self, items):
         table = _tok2str(items[0])
-        column = _tok2str(items[1])
+        column = None if items[1] is None else _tok2str(items[1])
         index_type = _tok2str(items[2])
         language = "spanish"
         feature_type = "SIFT"
@@ -235,7 +235,8 @@ class _T(Transformer):
                 multimedia_directory = val
             else:
                 language = val
-        return CreateIndexPlan(index_name=column, table=table, column=column, index_type=index_type, language=language, feature_type=feature_type, multimedia_directory=multimedia_directory, multimedia_pattern=multimedia_pattern)
+        index_name = column if column else f"multimedia_{index_type.lower()}"
+        return CreateIndexPlan(index_name=index_name, table=table, column=column, index_type=index_type, language=language, feature_type=feature_type, multimedia_directory=multimedia_directory, multimedia_pattern=multimedia_pattern)
 
     # ==== DROP TABLE ====
     def drop_table(self, items):
