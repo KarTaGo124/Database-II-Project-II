@@ -66,7 +66,7 @@ class DatabaseManager:
 
         return True
 
-    def create_index(self, table_name: str, field_name: str, index_type: str, scan_existing: bool = True, language: str = "spanish", feature_type: str = "SIFT"):
+    def create_index(self, table_name: str, field_name: str, index_type: str, scan_existing: bool = True, language: str = "spanish", feature_type: str = "SIFT", multimedia_directory: str = None, multimedia_pattern: str = None):
         if table_name not in self.tables:
             raise ValueError(f"Table {table_name} does not exist")
 
@@ -86,13 +86,15 @@ class DatabaseManager:
         if field_name in table_info["secondary_indexes"]:
             raise ValueError(f"Index on {field_name} already exists")
 
-        secondary_index = self._create_secondary_index(table, field_name, index_type, language=language, feature_type=feature_type)
+        secondary_index = self._create_secondary_index(table, field_name, index_type, language=language, feature_type=feature_type, multimedia_directory=multimedia_directory, multimedia_pattern=multimedia_pattern)
 
         table_info["secondary_indexes"][field_name] = {
             "index": secondary_index,
             "type": index_type,
             "language": language if index_type == "INVERTED_TEXT" else None,
-            "feature_type": feature_type if index_type in ("MULTIMEDIA_SEQ", "MULTIMEDIA_INV") else None
+            "feature_type": feature_type if index_type in ("MULTIMEDIA_SEQ", "MULTIMEDIA_INV") else None,
+            "multimedia_directory": multimedia_directory if index_type in ("MULTIMEDIA_SEQ", "MULTIMEDIA_INV") else None,
+            "multimedia_pattern": multimedia_pattern if index_type in ("MULTIMEDIA_SEQ", "MULTIMEDIA_INV") else None
         }
 
         total_reads = 0
@@ -1039,7 +1041,7 @@ class DatabaseManager:
 
         raise NotImplementedError(f"Primary index type {index_type} not implemented yet")
 
-    def _create_secondary_index(self, table: Table, field_name: str, index_type: str, language: str = "spanish", feature_type: str = "SIFT"):
+    def _create_secondary_index(self, table: Table, field_name: str, index_type: str, language: str = "spanish", feature_type: str = "SIFT", multimedia_directory: str = None, multimedia_pattern: str = None):
         field_type, field_size = self._get_field_info(table, field_name)
 
         if index_type == "BTREE":
@@ -1096,15 +1098,27 @@ class DatabaseManager:
 
             secondary_dir = os.path.join(self.base_dir, table.table_name, f"secondary_multimedia_seq_{field_name}")
             os.makedirs(secondary_dir, exist_ok=True)
-            files_dir = os.path.join(self.base_dir, table.table_name, f"{field_name}_files")
-            os.makedirs(files_dir, exist_ok=True)
+
+            if multimedia_directory:
+                if not os.path.isabs(multimedia_directory):
+                    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    files_dir = os.path.join(project_root, multimedia_directory)
+                else:
+                    files_dir = multimedia_directory
+
+                if not os.path.exists(files_dir):
+                    raise ValueError(f"Multimedia directory not found: {files_dir}")
+            else:
+                files_dir = os.path.join(self.base_dir, table.table_name, f"{field_name}_files")
+                os.makedirs(files_dir, exist_ok=True)
 
             from ..multimedia_index.multimedia_sequential import MultimediaSequential
             return MultimediaSequential(
                 index_dir=secondary_dir,
                 files_dir=files_dir,
                 field_name=field_name,
-                feature_type=feature_type
+                feature_type=feature_type,
+                filename_pattern=multimedia_pattern
             )
 
         elif index_type == "MULTIMEDIA_INV":
@@ -1113,15 +1127,27 @@ class DatabaseManager:
 
             secondary_dir = os.path.join(self.base_dir, table.table_name, f"secondary_multimedia_inv_{field_name}")
             os.makedirs(secondary_dir, exist_ok=True)
-            files_dir = os.path.join(self.base_dir, table.table_name, f"{field_name}_files")
-            os.makedirs(files_dir, exist_ok=True)
+
+            if multimedia_directory:
+                if not os.path.isabs(multimedia_directory):
+                    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    files_dir = os.path.join(project_root, multimedia_directory)
+                else:
+                    files_dir = multimedia_directory
+
+                if not os.path.exists(files_dir):
+                    raise ValueError(f"Multimedia directory not found: {files_dir}")
+            else:
+                files_dir = os.path.join(self.base_dir, table.table_name, f"{field_name}_files")
+                os.makedirs(files_dir, exist_ok=True)
 
             from ..multimedia_index.multimedia_inverted import MultimediaInverted
             return MultimediaInverted(
                 index_dir=secondary_dir,
                 files_dir=files_dir,
                 field_name=field_name,
-                feature_type=feature_type
+                feature_type=feature_type,
+                filename_pattern=multimedia_pattern
             )
 
         raise NotImplementedError(f"Secondary index type {index_type} not implemented yet")
@@ -1200,7 +1226,9 @@ class DatabaseManager:
                     field: {
                         "type": info["type"],
                         "language": info.get("language"),
-                        "feature_type": info.get("feature_type")
+                        "feature_type": info.get("feature_type"),
+                        "multimedia_directory": info.get("multimedia_directory"),
+                        "multimedia_pattern": info.get("multimedia_pattern")
                     }
                     for field, info in table_info["secondary_indexes"].items()
                 }
@@ -1255,13 +1283,17 @@ class DatabaseManager:
                             index_type = index_info["type"]
                             language = index_info.get("language", "spanish")
                             feature_type = index_info.get("feature_type", "SIFT")
+                            multimedia_directory = index_info.get("multimedia_directory", None)
+                            multimedia_pattern = index_info.get("multimedia_pattern", None)
 
-                            secondary_index = self._create_secondary_index(table, field_name, index_type, language=language, feature_type=feature_type)
+                            secondary_index = self._create_secondary_index(table, field_name, index_type, language=language, feature_type=feature_type, multimedia_directory=multimedia_directory, multimedia_pattern=multimedia_pattern)
                             table_info["secondary_indexes"][field_name] = {
                                 "index": secondary_index,
                                 "type": index_type,
                                 "language": language if index_type == "INVERTED_TEXT" else None,
-                                "feature_type": feature_type if index_type in ("MULTIMEDIA_SEQ", "MULTIMEDIA_INV") else None
+                                "feature_type": feature_type if index_type in ("MULTIMEDIA_SEQ", "MULTIMEDIA_INV") else None,
+                                "multimedia_directory": multimedia_directory if index_type in ("MULTIMEDIA_SEQ", "MULTIMEDIA_INV") else None,
+                                "multimedia_pattern": multimedia_pattern if index_type in ("MULTIMEDIA_SEQ", "MULTIMEDIA_INV") else None
                             }
                             if hasattr(secondary_index, 'warm_up'):
                                 secondary_index.warm_up()

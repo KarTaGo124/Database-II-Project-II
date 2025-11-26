@@ -218,6 +218,8 @@ class _T(Transformer):
         index_type = _tok2str(items[2])
         language = "spanish"
         feature_type = "SIFT"
+        multimedia_directory = None
+        multimedia_pattern = None
         for item in items[3:]:
             if item is None:
                 continue
@@ -225,11 +227,15 @@ class _T(Transformer):
                 val = item.value[1:-1] if item.type == "STRING" else item.value
             else:
                 val = str(item)
-            if val.upper() in ("SIFT", "MFCC"):
+            if val.upper() in ("SIFT", "MFCC", "ORB", "HOG", "CHROMA", "SPECTRAL"):
                 feature_type = val.upper()
+            elif val.startswith("{") and "}" in val:
+                multimedia_pattern = val
+            elif "/" in val or "\\" in val or val.endswith(".jpg") or val.endswith(".png"):
+                multimedia_directory = val
             else:
                 language = val
-        return CreateIndexPlan(index_name=column, table=table, column=column, index_type=index_type, language=language, feature_type=feature_type)
+        return CreateIndexPlan(index_name=column, table=table, column=column, index_type=index_type, language=language, feature_type=feature_type, multimedia_directory=multimedia_directory, multimedia_pattern=multimedia_pattern)
 
     # ==== DROP TABLE ====
     def drop_table(self, items):

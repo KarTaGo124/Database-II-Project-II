@@ -87,6 +87,8 @@ class CreateIndexPlan:
     index_type: str
     language: str = "spanish"
     feature_type: str = "SIFT"
+    multimedia_directory: str = None
+    multimedia_pattern: str = None
 
 @dataclass
 class DropTablePlan:

@@ -507,7 +507,7 @@ class Executor:
             if not self.db._validate_secondary_index(plan.index_type.upper()):
                 return OperationResult(f"ERROR: Tipo de índice '{plan.index_type}' no soportado", 0, 0, 0)
 
-            result = self.db.create_index(plan.table, plan.column, plan.index_type.upper(), language=plan.language, feature_type=plan.feature_type)
+            result = self.db.create_index(plan.table, plan.column, plan.index_type.upper(), language=plan.language, feature_type=plan.feature_type, multimedia_directory=plan.multimedia_directory, multimedia_pattern=plan.multimedia_pattern)
             return OperationResult(
                 f"OK: Índice creado en {plan.table}.{plan.column} usando {plan.index_type.upper()}: {result.data}",
                 result.execution_time_ms,
