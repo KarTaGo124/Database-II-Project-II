@@ -1,8 +1,10 @@
 import streamlit as st
 import pandas as pd
 from typing import List, Dict, Any
+from pathlib import Path
 from services.database_service import DatabaseService
 from utils.formatters import format_record, format_time
+from components.multimedia_results import render_multimedia_results, is_multimedia_query
 def render_sql_editor(db_service: DatabaseService):
     st.header("✏️ Editor SQL")
 
@@ -61,7 +63,11 @@ def render_single_result(result, plan_name: str):
 
     if isinstance(data, list):
         if len(data) > 0:
-            if hasattr(data[0], "value_type_size"):
+            if is_multimedia_query(data):
+                images_dir = Path(__file__).resolve().parents[2] / "data" / "images"
+                render_multimedia_results(data, images_dir=images_dir)
+                render_postgresql_footer(len(data), exec_time, reads, writes)
+            elif hasattr(data[0], "value_type_size"):
                 data_dicts = [format_record(rec) for rec in data]
                 df = pd.DataFrame(data_dicts)
                 st.dataframe(

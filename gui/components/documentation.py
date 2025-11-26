@@ -9,7 +9,8 @@ def render_documentation():
         "❌ Eliminación",
         "🗂️ Índices",
         "🌍 Espaciales",
-        "📝 Fulltext"
+        "📝 Fulltext",
+        "🖼️ Multimedia"
     ])
     with tabs[0]:
         st.markdown("### Definición de Datos (DDL)")
@@ -401,5 +402,178 @@ WHERE contenido @@ "tecnología inteligencia artificial" LIMIT 5;""", language="
           - Default: spanish
           - Especificar con: `LANGUAGE "idioma"` al crear el índice
         - **Índice estático:** Se crea una vez con los datos existentes, no se actualiza automáticamente
+        """)
+
+    with tabs[7]:
+        st.markdown("### Búsqueda por Similitud Multimedia (KNN)")
+        st.markdown("""
+        Las consultas multimedia requieren:
+        1. Imágenes almacenadas en una carpeta conocida
+        2. Índice `MULTIMEDIA_SEQ` o `MULTIMEDIA_INV` en el campo ID
+        3. Descriptores SIFT/ORB/HOG extraídos automáticamente
+
+        **Características:**
+        - Búsqueda KNN (K-Nearest Neighbors) sobre descriptores visuales
+        - Bag of Visual Words con TF-IDF
+        - Dos métodos: Sequential (scan completo) e Inverted (indexado)
+        - Retorna top-K imágenes más similares
+        """)
+
+        with st.expander("🎨 CREATE INDEX - Índice Multimedia", expanded=True):
+            st.markdown("""
+            Crea un índice para búsqueda por similitud de imágenes.
+
+            **Sintaxis:**
+            ```sql
+            CREATE INDEX ON tabla (campo_clave) USING tipo_multimedia
+            FEATURE "tipo_descriptor"
+            DIRECTORY "ruta/imagenes/"
+            PATTERN "{id}.extension";
+            ```
+
+            **IMPORTANTE:**
+            - `campo_clave` debe ser el campo KEY de la tabla (campo primario)
+            - El índice multimedia se crea sobre el campo clave, no sobre un campo de imagen
+
+            **Tipos de índice multimedia:**
+            - `MULTIMEDIA_SEQ` - Sequential scan con TF-IDF (más lento pero exacto)
+            - `MULTIMEDIA_INV` - Inverted index con SPIMI (más rápido)
+
+            **Descriptores soportados:**
+            - `SIFT` - Scale-Invariant Feature Transform (recomendado para imágenes)
+            - `ORB` - Oriented FAST and Rotated BRIEF (rápido)
+            - `HOG` - Histogram of Oriented Gradients (para detección)
+
+            **Parámetros:**
+            - `DIRECTORY` - Carpeta donde están las imágenes (relativa al proyecto)
+            - `PATTERN` - Patrón de nombre de archivo con placeholder {id}
+
+            **Proceso:**
+            1. Extrae descriptores SIFT/ORB/HOG de cada imagen
+            2. Construye codebook con K-means (clustering)
+            3. Genera histogramas TF-IDF para cada imagen
+            4. Construye índice (sequential o inverted)
+            """)
+            st.code("""
+CREATE TABLE Styles (
+    id INT KEY INDEX SEQUENTIAL,
+    ...
+);
+
+CREATE INDEX ON Styles USING MULTIMEDIA_SEQ
+FEATURE "SIFT"
+DIRECTORY "data/images/"
+PATTERN "{id}.jpg";""", language="sql")
+
+        with st.expander("🔍 Búsqueda KNN (WHERE <->)", expanded=True):
+            st.markdown("""
+            Encuentra las K imágenes más similares a una imagen de consulta.
+
+            **Sintaxis:**
+            ```sql
+            SELECT * FROM tabla
+            WHERE campo_id <-> "ruta/imagen.jpg"
+            LIMIT k;
+            ```
+
+            **Operador especial:**
+            - `<->` - Operador de similitud multimedia (Diamond operator)
+
+            **Parámetros:**
+            - `ruta/imagen.jpg` - Imagen de consulta (ruta completa o relativa)
+            - `LIMIT k` - Número de resultados similares a retornar
+
+            **Características:**
+            - Retorna top-K imágenes más similares
+            - Ordenadas por score de similitud (cosine similarity)
+            - Usa descriptores SIFT y Bag of Visual Words
+            - Métrica: cosine similarity entre histogramas TF-IDF
+
+            **Casos de uso:**
+            - Búsqueda de productos similares por imagen
+            - Recomendación visual
+            - Detección de duplicados
+            - Búsqueda inversa de imágenes
+            """)
+            st.code("""SELECT * FROM Styles
+WHERE id <-> "data/images/15970.jpg" LIMIT 8;
+
+SELECT id, productDisplayName FROM Styles
+WHERE id <-> "query_image.jpg" LIMIT 10;
+
+SELECT * FROM Products
+WHERE product_id <-> "uploaded_image.png" LIMIT 5;""", language="sql")
+
+        with st.expander("📊 Flujo Completo - Ejemplo con Imágenes de Moda"):
+            st.markdown("""
+            Ejemplo completo de creación de tabla, carga de datos y búsquedas multimedia.
+
+            **1. Crear tabla con datos de productos:**
+            ```sql
+            CREATE TABLE Styles (
+                id INT KEY INDEX SEQUENTIAL,
+                gender VARCHAR[20],
+                masterCategory VARCHAR[50],
+                articleType VARCHAR[50],
+                productDisplayName VARCHAR[200]
+            );
+            ```
+
+            **2. Cargar datos desde CSV:**
+            ```sql
+            LOAD DATA FROM FILE "data/datasets/styles_1000.csv" INTO Styles;
+            ```
+
+            **3. Crear índice multimedia:**
+            ```sql
+            CREATE INDEX ON Styles USING MULTIMEDIA_SEQ
+            FEATURE "SIFT"
+            DIRECTORY "data/images/"
+            PATTERN "{id}.jpg";
+            ```
+
+            **4. Realizar búsquedas KNN:**
+            ```sql
+            SELECT * FROM Styles
+            WHERE id <-> "data/images/15970.jpg" LIMIT 8;
+            ```
+
+            **Nota:** El sistema extrae automáticamente descriptores SIFT de las imágenes y construye el índice.
+            """)
+            st.code("""CREATE TABLE Styles (
+    id INT KEY INDEX SEQUENTIAL,
+    gender VARCHAR[20],
+    masterCategory VARCHAR[50],
+    subCategory VARCHAR[50],
+    articleType VARCHAR[50],
+    baseColour VARCHAR[50],
+    season VARCHAR[20],
+    year INT,
+    usage VARCHAR[20],
+    productDisplayName VARCHAR[200]
+);
+
+LOAD DATA FROM FILE "data/datasets/styles_1000.csv" INTO Styles;
+
+CREATE INDEX ON Styles USING MULTIMEDIA_SEQ
+FEATURE "SIFT"
+DIRECTORY "data/images/"
+PATTERN "{id}.jpg";
+
+SELECT * FROM Styles WHERE id <-> "data/images/15970.jpg" LIMIT 8;""", language="sql")
+
+        st.info("""
+        💡 **Consejos para búsquedas multimedia:**
+        - **Operador especial:** Usa `<->` para búsquedas KNN: `WHERE campo <-> "imagen.jpg"`
+        - **Índice requerido:** Crea índice MULTIMEDIA_SEQ o MULTIMEDIA_INV antes de buscar
+        - **LIMIT obligatorio:** Siempre especifica LIMIT k para definir cuántos resultados
+        - **Estructura de carpetas:**
+          - Imágenes en: `data/images/`
+          - Pattern típico: `{id}.jpg` donde {id} es reemplazado por la clave primaria
+        - **Descriptores:** SIFT es el más robusto, ORB es más rápido
+        - **Performance:**
+          - MULTIMEDIA_SEQ: O(n) - escaneo completo, más lento pero exacto
+          - MULTIMEDIA_INV: O(log n) - índice invertido, más rápido
+        - **K recomendado:** Entre 5 y 20 para mejores resultados
         """)
 
