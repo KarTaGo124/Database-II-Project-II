@@ -492,7 +492,7 @@ PATTERN "{id}.mp3";""", language="sql")
             **Sintaxis:**
             ```sql
             SELECT * FROM tabla
-            WHERE campo_id <-> "ruta/archivo.ext"
+            WHERE campo_id <-> "archivo.ext"
             LIMIT k;
             ```
 
@@ -500,8 +500,12 @@ PATTERN "{id}.mp3";""", language="sql")
             - `<->` - Operador de similitud multimedia (Diamond operator)
 
             **Parámetros:**
-            - `ruta/archivo.ext` - Archivo de consulta (imagen o audio, ruta completa o relativa)
+            - `archivo.ext` - Nombre del archivo de consulta (sin ruta, el directorio ya fue especificado en CREATE INDEX)
             - `LIMIT k` - Número de resultados similares a retornar
+
+            **IMPORTANTE:**
+            - Solo usa el nombre del archivo (ej: `"15970.jpg"`), NO la ruta completa
+            - El sistema usa el DIRECTORY especificado en CREATE INDEX automáticamente
 
             **Características:**
             - Retorna top-K archivos más similares
@@ -524,7 +528,7 @@ PATTERN "{id}.mp3";""", language="sql")
             - Identificación de género musical
             """)
             st.code("""SELECT * FROM Styles
-WHERE id <-> "data/images/15970.jpg" LIMIT 8;
+WHERE id <-> "15970.jpg" LIMIT 8;
 
 SELECT id, productDisplayName FROM Styles
 WHERE id <-> "query_image.jpg" LIMIT 10;
@@ -533,7 +537,7 @@ SELECT * FROM Products
 WHERE product_id <-> "uploaded_image.png" LIMIT 5;
 
 SELECT * FROM Songs
-WHERE id <-> "data/audio/query_song.mp3" LIMIT 10;
+WHERE id <-> "query_song.mp3" LIMIT 10;
 
 SELECT title, artist FROM Music
 WHERE track_id <-> "uploaded_audio.wav" LIMIT 5;""", language="sql")
@@ -569,10 +573,13 @@ WHERE track_id <-> "uploaded_audio.wav" LIMIT 5;""", language="sql")
             **4. Realizar búsquedas KNN:**
             ```sql
             SELECT * FROM Styles
-            WHERE id <-> "data/images/15970.jpg" LIMIT 8;
+            WHERE id <-> "15970.jpg" LIMIT 8;
             ```
 
-            **Nota:** El sistema extrae automáticamente descriptores SIFT de las imágenes y construye el índice con auto-detección de n_clusters.
+            **Nota:**
+            - El sistema extrae automáticamente descriptores SIFT de las imágenes
+            - Solo usa el nombre del archivo (no la ruta completa)
+            - El DIRECTORY ya fue especificado en CREATE INDEX
             """)
             st.code("""CREATE TABLE Styles (
     id INT KEY INDEX SEQUENTIAL,
@@ -594,7 +601,7 @@ FEATURE "SIFT"
 DIRECTORY "data/images/"
 PATTERN "{id}.jpg";
 
-SELECT * FROM Styles WHERE id <-> "data/images/15970.jpg" LIMIT 8;""", language="sql")
+SELECT * FROM Styles WHERE id <-> "15970.jpg" LIMIT 8;""", language="sql")
 
         with st.expander("🎵 Ejemplo Audio - Music Dataset"):
             st.markdown("""
@@ -627,10 +634,13 @@ SELECT * FROM Styles WHERE id <-> "data/images/15970.jpg" LIMIT 8;""", language=
             **4. Realizar búsquedas KNN:**
             ```sql
             SELECT * FROM Songs
-            WHERE id <-> "data/audio/query_song.mp3" LIMIT 10;
+            WHERE id <-> "query_song.mp3" LIMIT 10;
             ```
 
-            **Nota:** El sistema extrae automáticamente descriptores MFCC del audio y construye el índice invertido.
+            **Nota:**
+            - El sistema extrae automáticamente descriptores MFCC del audio
+            - Solo usa el nombre del archivo (no la ruta completa)
+            - El DIRECTORY ya fue especificado en CREATE INDEX
             """)
             st.code("""CREATE TABLE Songs (
     id INT KEY INDEX SEQUENTIAL,
@@ -647,7 +657,7 @@ FEATURE "MFCC"
 DIRECTORY "data/audio/"
 PATTERN "{id}.mp3";
 
-SELECT * FROM Songs WHERE id <-> "data/audio/query_song.mp3" LIMIT 10;""", language="sql")
+SELECT * FROM Songs WHERE id <-> "query_song.mp3" LIMIT 10;""", language="sql")
 
         st.info("""
         💡 **Consejos para búsquedas multimedia:**
