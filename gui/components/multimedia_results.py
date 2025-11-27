@@ -63,7 +63,7 @@ def render_multimedia_results(data, query_image_path: str = None, images_dir: Pa
                 if image_path.exists():
                     try:
                         img = Image.open(image_path)
-                        st.image(img, use_container_width=True)
+                        st.image(img, width='stretch')
                     except Exception as e:
                         st.error(f"Error: {e}")
                 else:
