@@ -3,7 +3,7 @@ from .plan_types import (
     CreateTablePlan, LoadDataPlan,
     SelectPlan, InsertPlan, DeletePlan,
     CreateIndexPlan, DropTablePlan, DropIndexPlan,
-    PredicateEq, PredicateBetween, PredicateInPointRadius, PredicateKNN, PredicateFulltext,
+    PredicateEq, PredicateBetween, PredicateInPointRadius, PredicateKNN, PredicateFulltext, PredicateMultimedia,
 )
 
 from lark import Lark, Transformer, Token
@@ -90,7 +90,7 @@ class _T(Transformer):
         coltype = items[1]
         is_key = False
         index = None
-        VALID = {"SEQUENTIAL", "ISAM", "BTREE", "RTREE", "HASH", "INVERTED_TEXT"}
+        VALID = {"SEQUENTIAL", "ISAM", "BTREE", "RTREE", "HASH", "INVERTED_TEXT", "MULTIMEDIA_SEQ", "MULTIMEDIA_INV"}
         for it in items[2:]:
             if it == "KEY":
                 is_key = True
@@ -165,8 +165,15 @@ class _T(Transformer):
         col = str(items[0])
         query = items[1]
         if isinstance(query, Token):
-            query = query.value[1:-1]  # Quitar comillas
+            query = query.value[1:-1]
         return PredicateFulltext(column=col, query=str(query))
+
+    def pred_multimedia(self, items):
+        col = str(items[0])
+        query_path = items[1]
+        if isinstance(query_path, Token):
+            query_path = query_path.value[1:-1]
+        return PredicateMultimedia(column=col, query_path=str(query_path))
 
     def select_stmt(self, items):
         cols_or_none = items[0]
@@ -207,19 +214,29 @@ class _T(Transformer):
     # ==== CREATE INDEX ====
     def create_index(self, items):
         table = _tok2str(items[0])
-        column = _tok2str(items[1])
+        column = None if items[1] is None else _tok2str(items[1])
         index_type = _tok2str(items[2])
         language = "spanish"
-        if len(items) > 3 and items[3] is not None:
-            lang_token = items[3]
-            if isinstance(lang_token, Token):
-                if lang_token.type == "STRING":
-                    language = lang_token.value[1:-1]
-                else:
-                    language = lang_token.value
-            elif lang_token is not None:
-                language = str(lang_token)
-        return CreateIndexPlan(index_name=column, table=table, column=column, index_type=index_type, language=language)
+        feature_type = "SIFT"
+        multimedia_directory = None
+        multimedia_pattern = None
+        for item in items[3:]:
+            if item is None:
+                continue
+            if isinstance(item, Token):
+                val = item.value[1:-1] if item.type == "STRING" else item.value
+            else:
+                val = str(item)
+            if val.upper() in ("SIFT", "MFCC", "ORB", "HOG", "CHROMA", "SPECTRAL"):
+                feature_type = val.upper()
+            elif val.startswith("{") and "}" in val:
+                multimedia_pattern = val
+            elif "/" in val or "\\" in val or val.endswith(".jpg") or val.endswith(".png"):
+                multimedia_directory = val
+            else:
+                language = val
+        index_name = column if column else f"multimedia_{index_type.lower()}"
+        return CreateIndexPlan(index_name=index_name, table=table, column=column, index_type=index_type, language=language, feature_type=feature_type, multimedia_directory=multimedia_directory, multimedia_pattern=multimedia_pattern)
 
     # ==== DROP TABLE ====
     def drop_table(self, items):
