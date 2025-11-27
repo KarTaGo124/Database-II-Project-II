@@ -11,7 +11,7 @@ from concurrent.futures import ProcessPoolExecutor
 class MultimediaInverted(MultimediaIndexBase):
 
     def __init__(self, index_dir: str, files_dir: str, field_name: str,
-                 feature_type: str, n_clusters: int = 100, filename_pattern: str = None):
+                 feature_type: str, n_clusters: int = None, filename_pattern: str = None):
         self.method_dir = os.path.join(index_dir, "inverted")
         os.makedirs(self.method_dir, exist_ok=True)
 
@@ -39,10 +39,10 @@ class MultimediaInverted(MultimediaIndexBase):
         if self.codebook is None:
             print("Construyendo codebook...")
             if use_multiprocessing:
-                codebook_batch_size = 50
+                codebook_batch_size = 200
                 self.build_codebook(
-                    filenames=filenames, 
-                    n_workers=n_workers, 
+                    filenames=filenames,
+                    n_workers=n_workers,
                     batch_size=codebook_batch_size
                 )
             else:
@@ -159,6 +159,10 @@ class MultimediaInverted(MultimediaIndexBase):
             with open(self.idf_file, 'rb') as f:
                 self.idf = pickle.load(f)
         self._load_metadata()
+
+    def warm_up(self):
+        super()._load_if_exists()
+        self._load_if_exists()
 
     def _save_metadata(self):
         metadata = {

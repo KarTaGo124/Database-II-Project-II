@@ -69,7 +69,7 @@ def _extract_sift_global(image_path: str) -> Optional[np.ndarray]:
         img = cv2.imread(image_path, cv2.IMREAD_GRAYSCALE)
         if img is None:
             return None
-        
+
         if img.shape[0] > 1024 or img.shape[1] > 1024:
             scale = 1024 / max(img.shape)
             new_size = (int(img.shape[1] * scale), int(img.shape[0] * scale))
@@ -77,7 +77,7 @@ def _extract_sift_global(image_path: str) -> Optional[np.ndarray]:
 
         sift = cv2.SIFT_create(nfeatures=500)
         keypoints, descriptors = sift.detectAndCompute(img, None)
-        
+
         if descriptors is None or len(descriptors) == 0:
             return None
         return descriptors.astype(np.float32)
@@ -188,7 +188,7 @@ class MultimediaIndexBase:
     AUDIO_EXTENSIONS = ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.aac']
 
     def __init__(self, index_dir: str, files_dir: str, field_name: str,
-                 feature_type: str, n_clusters: int = 100, cache_size: int = 1000, filename_pattern: str = None):
+                 feature_type: str, n_clusters: int = None, cache_size: int = 1000, filename_pattern: str = None):
         self.index_dir = index_dir
         self.files_dir = files_dir
         self.field_name = field_name
@@ -198,7 +198,7 @@ class MultimediaIndexBase:
         self.filename_pattern = filename_pattern
 
         os.makedirs(index_dir, exist_ok=True)
-        self.features_dir = files_dir.replace("_files", "_features")
+        self.features_dir = os.path.join(index_dir, "features")
         os.makedirs(self.features_dir, exist_ok=True)
 
         self.codebook_file = os.path.join(index_dir, f"codebook_{feature_type}.npy")
@@ -232,6 +232,8 @@ class MultimediaIndexBase:
             raise ValueError(f"Unknown media type for extension: {ext}")
 
     def get_file_path(self, filename: str) -> str:
+        if os.path.isabs(filename):
+            return filename
         return os.path.join(self.files_dir, filename)
 
     def resolve_filename(self, record) -> str:
@@ -243,7 +245,7 @@ class MultimediaIndexBase:
             return getattr(record, self.field_name, None)
 
     def _get_features_save_path(self, filename: str) -> str:
-        base_name = os.path.splitext(filename)[0]
+        base_name = os.path.basename(os.path.splitext(filename)[0])
         file_hash = hashlib.md5(filename.encode()).hexdigest()[:8]
         feature_file = f"{base_name}_{file_hash}_{self.feature_type}.npy"
         return os.path.join(self.features_dir, feature_file)
@@ -265,7 +267,7 @@ class MultimediaIndexBase:
         
         file_path = self.get_file_path(filename)
         if not os.path.exists(file_path):
-            logging.error(f"File not found: {file_path}")
+            logging.debug(f"File not found: {file_path}")
             return None
         
         try:
@@ -285,13 +287,17 @@ class MultimediaIndexBase:
         return None
 
     def build_codebook(self, filenames: List[str], n_workers: int = None, batch_size: int = 100):
-        
+
         if n_workers is None:
             n_workers = min(4, os.cpu_count() or 1)
-        
+
+        if self.n_clusters is None:
+            self.n_clusters = 300
+            logging.info(f"Using default n_clusters={self.n_clusters}")
+
         logging.info(f"Construyendo codebook con {len(filenames)} archivos usando {n_workers} workers")
         logging.info(f"Tamaño de batch: {batch_size}")
-        
+
         batches = [filenames[i:i + batch_size] for i in range(0, len(filenames), batch_size)]
         logging.info(f"Total de batches: {len(batches)}")
         
@@ -323,17 +329,21 @@ class MultimediaIndexBase:
         logging.info(f"Combinando {len(all_descriptors)} conjuntos de descriptores...")
         combined_descriptors = np.vstack(all_descriptors)
         logging.info(f"Total descriptores combinados: {len(combined_descriptors)}")
-        
-        if len(combined_descriptors) > 100000:
-            logging.info(f"Submuestreando de {len(combined_descriptors)} a 100000 descriptores")
-            indices = np.random.choice(len(combined_descriptors), 100000, replace=False)
+
+        max_descriptors = 200000
+
+        if len(combined_descriptors) > max_descriptors:
+            logging.info(f"Submuestreando de {len(combined_descriptors)} a {max_descriptors} descriptores")
+            indices = np.random.choice(len(combined_descriptors), max_descriptors, replace=False)
             combined_descriptors = combined_descriptors[indices]
+        else:
+            logging.info(f"Usando todos los {len(combined_descriptors)} descriptores (bajo el límite de {max_descriptors})")
 
         logging.info(f"Entrenando codebook con {self.n_clusters} clusters...")
         kmeans = MiniBatchKMeans(
-            n_clusters=self.n_clusters, 
-            random_state=42, 
-            batch_size=min(1000, len(combined_descriptors) // 10),
+            n_clusters=self.n_clusters,
+            random_state=42,
+            batch_size=min(2000, len(combined_descriptors) // 10),
             n_init=3,
             max_iter=100
         )
