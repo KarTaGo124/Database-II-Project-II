@@ -45,6 +45,7 @@ class DatabaseManager:
             "table": table,
             "primary_index": None,
             "secondary_indexes": {},
+            "multimedia_indexes": {},
             "primary_type": primary_index_type
         }
 
@@ -75,6 +76,59 @@ class DatabaseManager:
 
         table_info = self.tables[table_name]
         table = table_info["table"]
+
+        if index_type in ("MULTIMEDIA_SEQ", "MULTIMEDIA_INV"):
+            if field_name is None:
+                if index_type in table_info["multimedia_indexes"]:
+                    raise ValueError(f"Multimedia index {index_type} already exists on table {table_name}")
+
+                multimedia_index = self._create_multimedia_index(table, index_type, feature_type=feature_type, multimedia_directory=multimedia_directory, multimedia_pattern=multimedia_pattern)
+
+                table_info["multimedia_indexes"][index_type] = {
+                    "index": multimedia_index,
+                    "type": index_type,
+                    "feature_type": feature_type,
+                    "multimedia_directory": multimedia_directory,
+                    "multimedia_pattern": multimedia_pattern
+                }
+
+                total_reads = 0
+                total_writes = 0
+                total_time = 0
+                records_indexed = 0
+
+                if scan_existing:
+                    primary_index = table_info["primary_index"]
+                    if hasattr(primary_index, 'scan_all'):
+                        try:
+                            scan_result = primary_index.scan_all()
+                            existing_records = scan_result.data
+
+                            total_reads = scan_result.disk_reads
+                            total_writes = scan_result.disk_writes
+                            total_time = scan_result.execution_time_ms
+
+                            build_result = multimedia_index.build(existing_records)
+                            total_reads += build_result.disk_reads
+                            total_writes += build_result.disk_writes
+                            total_time += build_result.execution_time_ms
+
+                            records_indexed = len(existing_records)
+
+                        except Exception as e:
+                            del table_info["multimedia_indexes"][index_type]
+                            raise ValueError(f"Error building multimedia index: {e}")
+
+                self._save_metadata()
+                return OperationResult(
+                    data=f"Multimedia index ({index_type}) created on table {table_name} with {records_indexed} files indexed",
+                    execution_time_ms=total_time,
+                    disk_reads=total_reads,
+                    disk_writes=total_writes
+                )
+
+        if field_name is None:
+            raise ValueError(f"Field name is required for {index_type} index")
 
         if field_name == table.key_field:
             raise ValueError(f"Cannot create secondary index on primary key field '{field_name}'")
@@ -135,37 +189,6 @@ class DatabaseManager:
                 disk_writes=total_writes
             )
 
-        if index_type in ("MULTIMEDIA_SEQ", "MULTIMEDIA_INV"):
-            if scan_existing:
-                primary_index = table_info["primary_index"]
-                if hasattr(primary_index, 'scan_all'):
-                    try:
-                        scan_result = primary_index.scan_all()
-                        existing_records = scan_result.data
-
-                        total_reads = scan_result.disk_reads
-                        total_writes = scan_result.disk_writes
-                        total_time = scan_result.execution_time_ms
-
-                        build_result = secondary_index.build(existing_records)
-                        total_reads += build_result.disk_reads
-                        total_writes += build_result.disk_writes
-                        total_time += build_result.execution_time_ms
-
-                        records_indexed = len(existing_records)
-
-                    except Exception as e:
-                        del table_info["secondary_indexes"][field_name]
-                        raise ValueError(f"Error building multimedia index: {e}")
-
-            self._save_metadata()
-            return OperationResult(
-                data=f"Multimedia index ({index_type}) created on {field_name} with {records_indexed} files indexed",
-                execution_time_ms=total_time,
-                disk_reads=total_reads,
-                disk_writes=total_writes
-            )
-        
         if scan_existing:
             primary_index = table_info["primary_index"]
             if hasattr(primary_index, 'scan_all'):
@@ -277,6 +300,57 @@ class DatabaseManager:
                 return OperationResult([result.data], result.execution_time_ms, result.disk_reads, result.disk_writes)
             else:
                 return OperationResult([], result.execution_time_ms, result.disk_reads, result.disk_writes)
+
+        elif field_name and field_name.startswith("_multimedia_"):
+            index_type = field_name.replace("_multimedia_", "").upper()
+            if index_type not in table_info["multimedia_indexes"]:
+                raise ValueError(f"Multimedia index {index_type} not found on table {table_name}")
+
+            multimedia_info = table_info["multimedia_indexes"][index_type]
+            multimedia_index = multimedia_info["index"]
+            primary_index = table_info["primary_index"]
+
+            top_k = limit if limit is not None else 10
+            secondary_result = multimedia_index.search(value, top_k=top_k)
+
+            if not secondary_result.data:
+                breakdown = {
+                    "primary_metrics": {"reads": 0, "writes": 0, "time_ms": 0},
+                    "secondary_metrics": {"reads": secondary_result.disk_reads, "writes": secondary_result.disk_writes, "time_ms": secondary_result.execution_time_ms}
+                }
+                return OperationResult([], secondary_result.execution_time_ms, secondary_result.disk_reads, secondary_result.disk_writes, operation_breakdown=breakdown)
+
+            total_time = secondary_result.execution_time_ms
+            total_reads = secondary_result.disk_reads
+            total_writes = secondary_result.disk_writes
+
+            primary_lookup_reads = 0
+            primary_lookup_writes = 0
+            primary_lookup_time = 0
+
+            matching_records = []
+            for doc_id, score in secondary_result.data:
+                primary_result = primary_index.search(doc_id)
+                primary_lookup_reads += primary_result.disk_reads
+                primary_lookup_writes += primary_result.disk_writes
+                primary_lookup_time += primary_result.execution_time_ms
+
+                if primary_result.data:
+                    record = primary_result.data
+                    if not hasattr(record, '_multimedia_score'):
+                        record._multimedia_score = score
+                    matching_records.append(record)
+
+            total_reads += primary_lookup_reads
+            total_writes += primary_lookup_writes
+            total_time += primary_lookup_time
+
+            breakdown = {
+                "primary_metrics": {"reads": primary_lookup_reads, "writes": primary_lookup_writes, "time_ms": primary_lookup_time},
+                "secondary_metrics": {"reads": secondary_result.disk_reads, "writes": secondary_result.disk_writes, "time_ms": secondary_result.execution_time_ms}
+            }
+
+            return OperationResult(matching_records, total_time, total_reads, total_writes, operation_breakdown=breakdown)
 
         elif field_name in table_info["secondary_indexes"]:
             secondary_info = table_info["secondary_indexes"][field_name]
@@ -955,6 +1029,10 @@ class DatabaseManager:
                 field_name: index_info["type"]
                 for field_name, index_info in table_info["secondary_indexes"].items()
             },
+            "multimedia_indexes": {
+                idx_type: index_info["type"]
+                for idx_type, index_info in table_info.get("multimedia_indexes", {}).items()
+            },
             "field_count": len(table_info["table"].all_fields)
         }
 
@@ -1152,6 +1230,61 @@ class DatabaseManager:
 
         raise NotImplementedError(f"Secondary index type {index_type} not implemented yet")
 
+    def _create_multimedia_index(self, table: Table, index_type: str, feature_type: str = "SIFT", multimedia_directory: str = None, multimedia_pattern: str = None):
+        if index_type == "MULTIMEDIA_SEQ":
+            secondary_dir = os.path.join(self.base_dir, table.table_name, "multimedia_seq")
+            os.makedirs(secondary_dir, exist_ok=True)
+
+            if multimedia_directory:
+                if not os.path.isabs(multimedia_directory):
+                    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    files_dir = os.path.join(project_root, multimedia_directory)
+                else:
+                    files_dir = multimedia_directory
+
+                if not os.path.exists(files_dir):
+                    raise ValueError(f"Multimedia directory not found: {files_dir}")
+            else:
+                files_dir = os.path.join(self.base_dir, table.table_name, "multimedia_files")
+                os.makedirs(files_dir, exist_ok=True)
+
+            from ..multimedia_index.multimedia_sequential import MultimediaSequential
+            return MultimediaSequential(
+                index_dir=secondary_dir,
+                files_dir=files_dir,
+                field_name=table.key_field,
+                feature_type=feature_type,
+                filename_pattern=multimedia_pattern
+            )
+
+        elif index_type == "MULTIMEDIA_INV":
+            secondary_dir = os.path.join(self.base_dir, table.table_name, "multimedia_inv")
+            os.makedirs(secondary_dir, exist_ok=True)
+
+            if multimedia_directory:
+                if not os.path.isabs(multimedia_directory):
+                    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                    files_dir = os.path.join(project_root, multimedia_directory)
+                else:
+                    files_dir = multimedia_directory
+
+                if not os.path.exists(files_dir):
+                    raise ValueError(f"Multimedia directory not found: {files_dir}")
+            else:
+                files_dir = os.path.join(self.base_dir, table.table_name, "multimedia_files")
+                os.makedirs(files_dir, exist_ok=True)
+
+            from ..multimedia_index.multimedia_inverted import MultimediaInverted
+            return MultimediaInverted(
+                index_dir=secondary_dir,
+                files_dir=files_dir,
+                field_name=table.key_field,
+                feature_type=feature_type,
+                filename_pattern=multimedia_pattern
+            )
+
+        raise NotImplementedError(f"Multimedia index type {index_type} not implemented yet")
+
     def get_last_operation_metrics(self, table_name: str, index_type: str = "primary", field_name: str = None):
         if table_name not in self.tables:
             return None
@@ -1231,6 +1364,15 @@ class DatabaseManager:
                         "multimedia_pattern": info.get("multimedia_pattern")
                     }
                     for field, info in table_info["secondary_indexes"].items()
+                },
+                "multimedia_indexes": {
+                    idx_type: {
+                        "type": info["type"],
+                        "feature_type": info.get("feature_type"),
+                        "multimedia_directory": info.get("multimedia_directory"),
+                        "multimedia_pattern": info.get("multimedia_pattern")
+                    }
+                    for idx_type, info in table_info.get("multimedia_indexes", {}).items()
                 }
             }
 
@@ -1275,6 +1417,7 @@ class DatabaseManager:
                         "table": table,
                         "primary_index": primary_index,
                         "secondary_indexes": {},
+                        "multimedia_indexes": {},
                         "primary_type": primary_type
                     }
 
@@ -1297,6 +1440,25 @@ class DatabaseManager:
                             }
                             if hasattr(secondary_index, 'warm_up'):
                                 secondary_index.warm_up()
+                        except Exception:
+                            pass
+
+                    for idx_type, index_info in table_meta.get("multimedia_indexes", {}).items():
+                        try:
+                            feature_type = index_info.get("feature_type", "SIFT")
+                            multimedia_directory = index_info.get("multimedia_directory", None)
+                            multimedia_pattern = index_info.get("multimedia_pattern", None)
+
+                            multimedia_index = self._create_multimedia_index(table, idx_type, feature_type=feature_type, multimedia_directory=multimedia_directory, multimedia_pattern=multimedia_pattern)
+                            table_info["multimedia_indexes"][idx_type] = {
+                                "index": multimedia_index,
+                                "type": idx_type,
+                                "feature_type": feature_type,
+                                "multimedia_directory": multimedia_directory,
+                                "multimedia_pattern": multimedia_pattern
+                            }
+                            if hasattr(multimedia_index, 'warm_up'):
+                                multimedia_index.warm_up()
                         except Exception:
                             pass
 
