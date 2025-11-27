@@ -59,6 +59,13 @@ experiments/inverted_text/postgres_results_*.json
 experiments/inverted_text/benchmark_db/
 experiments/inverted_text/comparison_*.csv
 
+# Images
+data/images/*.jpg
+
+# Metadata Multimedia Index
+*.npy
+*.json
+
 # Temporary files
 *.tmp
 *.temp

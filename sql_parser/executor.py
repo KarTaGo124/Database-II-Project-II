@@ -3,7 +3,7 @@ from typing import Dict, Any, List, Tuple, Optional
 from .plan_types import (
     CreateTablePlan, LoadDataPlan, SelectPlan, InsertPlan, DeletePlan,
     CreateIndexPlan, DropTablePlan, DropIndexPlan,
-    ColumnDef, ColumnType, PredicateEq, PredicateBetween, PredicateInPointRadius, PredicateKNN, PredicateFulltext
+    ColumnDef, ColumnType, PredicateEq, PredicateBetween, PredicateInPointRadius, PredicateKNN, PredicateFulltext, PredicateMultimedia
 )
 from indexes.core.record import Table, Record
 from indexes.core.performance_tracker import OperationResult
@@ -315,7 +315,9 @@ class Executor:
             
             if hasattr(r, '_text_score'):
                 obj['_text_score'] = r._text_score
-            
+            if hasattr(r, '_multimedia_score'):
+                obj['_multimedia_score'] = r._multimedia_score
+
             out.append(obj)
         return out
 
@@ -381,7 +383,36 @@ class Executor:
             
             projected_data = self._project_records(data_list, plan.columns)
             return OperationResult(projected_data, res.execution_time_ms, res.disk_reads, res.disk_writes, res.rebuild_triggered, res.operation_breakdown)
-        
+
+        if isinstance(where, PredicateMultimedia):
+            col = where.column
+            query_path = where.query_path
+
+            table_info = self.db.tables.get(table)
+            if not table_info:
+                raise ValueError(f"Tabla {table} no existe")
+
+            multimedia_indexes = table_info.get("multimedia_indexes", {})
+            if not multimedia_indexes:
+                raise ValueError(f"No hay índices multimedia en la tabla '{table}'. Use CREATE INDEX ON {table} USING MULTIMEDIA_SEQ o MULTIMEDIA_INV primero.")
+
+            if "MULTIMEDIA_INV" in multimedia_indexes:
+                index_type = "MULTIMEDIA_INV"
+            elif "MULTIMEDIA_SEQ" in multimedia_indexes:
+                index_type = "MULTIMEDIA_SEQ"
+            else:
+                raise ValueError(f"No se encontró índice multimedia en la tabla '{table}'")
+
+            limit = plan.limit if plan.limit else 10
+
+            field_name = f"_multimedia_{index_type.lower()}"
+            res = self.db.search(table, query_path, field_name=field_name, limit=limit)
+
+            data_list = res.data if isinstance(res.data, list) else []
+
+            projected_data = self._project_records(data_list, plan.columns)
+            return OperationResult(projected_data, res.execution_time_ms, res.disk_reads, res.disk_writes, res.rebuild_triggered, res.operation_breakdown)
+
         raise NotImplementedError("Predicado WHERE no soportado")
 
     # ====== INSERT ======
@@ -483,9 +514,15 @@ class Executor:
             if not self.db._validate_secondary_index(plan.index_type.upper()):
                 return OperationResult(f"ERROR: Tipo de índice '{plan.index_type}' no soportado", 0, 0, 0)
 
-            result = self.db.create_index(plan.table, plan.column, plan.index_type.upper(), language=plan.language)
+            result = self.db.create_index(plan.table, plan.column, plan.index_type.upper(), language=plan.language, feature_type=plan.feature_type, multimedia_directory=plan.multimedia_directory, multimedia_pattern=plan.multimedia_pattern)
+
+            if plan.column:
+                location_desc = f"{plan.table}.{plan.column}"
+            else:
+                location_desc = f"table {plan.table}"
+
             return OperationResult(
-                f"OK: Índice creado en {plan.table}.{plan.column} usando {plan.index_type.upper()}: {result.data}",
+                f"OK: Índice creado en {location_desc} usando {plan.index_type.upper()}: {result.data}",
                 result.execution_time_ms,
                 result.disk_reads,
                 result.disk_writes
