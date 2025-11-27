@@ -12,7 +12,7 @@ class SequentialFile:
         self.list_of_types = table.all_fields
         self.key_field = table.key_field
         self.record_size = table.record_size
-        self.k = k_rec if k_rec is not None else 10
+        self.k = k_rec if k_rec is not None else 100
         self.deleted_count = 0
         self.total_records = 0
         self.performance = PerformanceTracker()
@@ -249,6 +249,49 @@ class SequentialFile:
 
         results.sort(key=lambda r: r.get_key())
         return self.performance.end_operation(results)
+
+    def bulk_insert(self, records: List[Record]):
+        self.performance.start_operation()
+
+        records.sort(key=lambda r: r.get_key())
+
+        for record in records:
+            record.active = True
+
+        main_size = self.get_file_size(self.main_file)
+
+        if main_size == 0:
+            with open(self.main_file, 'wb') as f:
+                for record in records:
+                    f.write(record.pack())
+                    self.performance.track_write()
+
+            self.total_records = len(records)
+            return self.performance.end_operation(True, rebuild_triggered=False)
+
+        else:
+            existing = []
+            with open(self.main_file, 'rb') as f:
+                while data := f.read(self.record_size):
+                    self.performance.track_read()
+                    rec = Record.unpack(data, self.list_of_types, self.key_field)
+                    if rec.active:
+                        existing.append(rec)
+
+            all_records = existing + records
+            all_records.sort(key=lambda r: r.get_key())
+
+            with open(self.main_file, 'wb') as f:
+                for record in all_records:
+                    f.write(record.pack())
+                    self.performance.track_write()
+
+            open(self.aux_file, 'wb').close()
+
+            self.total_records = len(all_records)
+            self.deleted_count = 0
+
+            return self.performance.end_operation(True, rebuild_triggered=True)
 
     def scan_all(self):
         self.performance.start_operation()

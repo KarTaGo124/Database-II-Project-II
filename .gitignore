@@ -53,6 +53,12 @@ data/databases/**/metadata.json
 gui/data/databases/**/_metadata.json
 gui/data/databases/**/metadata.json
 
+# Benchmark results
+experiments/inverted_text/myindex_results_*.json
+experiments/inverted_text/postgres_results_*.json
+experiments/inverted_text/benchmark_db/
+experiments/inverted_text/comparison_*.csv
+
 # Temporary files
 *.tmp
 *.temp
