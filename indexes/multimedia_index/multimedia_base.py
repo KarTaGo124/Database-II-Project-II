@@ -33,8 +33,7 @@ def _extract_features_batch_worker(batch_data):
                 continue
             
             base_name = os.path.splitext(filename)[0]
-            file_hash = hashlib.md5(filename.encode()).hexdigest()[:8]
-            feature_file = f"{base_name}_{file_hash}_{feature_type}.npy"
+            feature_file = f"{base_name}_{feature_type}.npy"
             features_path = os.path.join(features_dir, feature_file)
             
             features = None
@@ -261,13 +260,13 @@ class MultimediaIndexBase:
 
     def _get_features_save_path(self, filename: str) -> str:
         base_name = os.path.basename(os.path.splitext(filename)[0])
-        file_hash = hashlib.md5(filename.encode()).hexdigest()[:8]
-        feature_file = f"{base_name}_{file_hash}_{self.feature_type}.npy"
+        feature_file = f"{base_name}_{self.feature_type}.npy"
         return os.path.join(self.features_dir, feature_file)
 
     def extract_features(self, filename: str, use_saved: bool = True) -> Optional[np.ndarray]:
-        if filename in self._feature_cache:
-            return self._feature_cache[filename]
+        cache_key = os.path.basename(filename)
+        if cache_key in self._feature_cache:
+            return self._feature_cache[cache_key]
 
         features_path = self._get_features_save_path(filename)
         
@@ -275,15 +274,20 @@ class MultimediaIndexBase:
             try:
                 features = np.load(features_path)
                 if len(self._feature_cache) < self.cache_size:
-                    self._feature_cache[filename] = features
+                    self._feature_cache[cache_key] = features
                 return features
             except Exception as e:
                 logging.warning(f"Error loading cached features for {filename}: {e}")
         
         file_path = self.get_file_path(filename)
         if not os.path.exists(file_path):
-            logging.debug(f"File not found: {file_path}")
-            return None
+            basename = os.path.basename(filename)
+            alt_path = os.path.join(self.files_dir, basename)
+            if os.path.exists(alt_path):
+                file_path = alt_path
+            else:
+                logging.debug(f"File not found: {file_path}")
+                return None
         
         try:
             media_type = self._detect_media_type(filename)
@@ -294,7 +298,7 @@ class MultimediaIndexBase:
             if features is not None and len(features) > 0:
                 np.save(features_path, features)
                 if len(self._feature_cache) < self.cache_size:
-                    self._feature_cache[filename] = features
+                    self._feature_cache[cache_key] = features
                 return features
         except Exception as e:
             logging.error(f"Error extracting features from {filename}: {e}")
