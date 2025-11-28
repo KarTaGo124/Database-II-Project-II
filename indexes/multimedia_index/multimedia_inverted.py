@@ -115,7 +115,6 @@ class MultimediaInverted(MultimediaIndexBase):
                     batch_size=len(filenames)
                 )
 
-        # Configuración de workers
         if use_multiprocessing and n_workers is None:
             n_workers = min(os.cpu_count() or 1, 4)
         elif not use_multiprocessing:
@@ -162,13 +161,11 @@ class MultimediaInverted(MultimediaIndexBase):
                             doc_id, hist = result
                             all_histograms[doc_id] = hist
             else:
-                # Camino secuencial (sin multiprocessing)
                 for f, doc_id in zip(batch_files, batch_doc_ids):
                     hist = self.build_histogram(f, normalize=True)
                     if hist is not None:
                         all_histograms[doc_id] = hist
 
-        # IDF sobre todos los histogramas
         self.calculate_idf(all_histograms)
 
         inverted_index = {i: [] for i in range(self.n_clusters)}

@@ -8,7 +8,6 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from .multimedia_base import MultimediaIndexBase
 from ..core.performance_tracker import OperationResult
 
-#Optimizacion del build
 def _build_histogram_worker_opt(args_tuple):
     filename, doc_id, codebook, n_clusters, base_index_proxy = args_tuple
     
