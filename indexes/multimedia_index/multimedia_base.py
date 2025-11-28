@@ -123,10 +123,10 @@ def _extract_mfcc_global(audio_path: str) -> Optional[np.ndarray]:
         y, sr = librosa.load(audio_path, sr=22050, duration=30.0)
         if len(y) == 0:
             return None
-        
+
         mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, hop_length=512)
         mfcc = mfcc.T
-        
+
         if mfcc.shape[0] == 0:
             return None
         return mfcc.astype(np.float32)
@@ -238,8 +238,23 @@ class MultimediaIndexBase:
 
     def resolve_filename(self, record) -> str:
         if self.filename_pattern:
-            key_value = record.get_key()
-            resolved = self.filename_pattern.replace("{id}", str(key_value))
+            resolved = self.filename_pattern
+
+            if "{id}" in resolved:
+                key_value = record.get_key()
+                resolved = resolved.replace("{id}", str(key_value))
+
+            import re
+            placeholders = re.findall(r'\{(\w+)\}', resolved)
+            for placeholder in placeholders:
+                field_value = getattr(record, placeholder, None)
+                if field_value is not None:
+                    if hasattr(field_value, 'decode'):
+                        field_value = field_value.decode('utf-8').strip()
+                    else:
+                        field_value = str(field_value).strip()
+                    resolved = resolved.replace(f"{{{placeholder}}}", field_value)
+
             return resolved
         else:
             return getattr(record, self.field_name, None)
@@ -462,10 +477,10 @@ class MultimediaIndexBase:
             y, sr = librosa.load(audio_path, sr=22050, duration=30.0)
             if len(y) == 0:
                 return None
-            
+
             mfcc = librosa.feature.mfcc(y=y, sr=sr, n_mfcc=13, hop_length=512)
             mfcc = mfcc.T
-            
+
             if mfcc.shape[0] == 0:
                 return None
             return mfcc.astype(np.float32)
