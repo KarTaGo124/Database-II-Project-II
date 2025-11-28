@@ -72,7 +72,10 @@ class MultimediaInverted(MultimediaIndexBase):
         norms = {}
 
         for doc_id, hist in all_histograms.items():
-            norm = np.linalg.norm(hist)
+            tf_idf = np.zeros(self.n_clusters, dtype=np.float32)
+            for i in range(self.n_clusters):
+                tf_idf[i] = hist[i] * self.idf.get(i, 0.0)
+            norm = np.linalg.norm(tf_idf)
             norms[doc_id] = norm
             for codeword_id, tf in enumerate(hist):
                 if tf > 0:
@@ -97,11 +100,21 @@ class MultimediaInverted(MultimediaIndexBase):
         if query_vec is None:
             return OperationResult(data=[], execution_time_ms=0, disk_reads=0, disk_writes=0)
 
+        query_basename = os.path.splitext(os.path.basename(query_filename))[0]
+
         scores = {}
         for codeword_id, q_weight in enumerate(query_vec):
             if q_weight > 0:  
                 postings = self._read_postings_list(codeword_id)
                 for doc_id, tf in postings:
+                    doc_id_str = str(doc_id).strip()
+                    if hasattr(doc_id, 'decode'):
+                        doc_id_str = doc_id.decode('utf-8').strip()
+                    doc_basename = os.path.splitext(doc_id_str)[0]
+                    
+                    if doc_basename == query_basename:
+                        continue
+                        
                     doc_weight = tf * self.idf.get(codeword_id, 0.0)
                     scores[doc_id] = scores.get(doc_id, 0.0) + q_weight * doc_weight
         

@@ -1,7 +1,13 @@
 import streamlit as st
+import sys
 from pathlib import Path
 from PIL import Image
 import tempfile
+
+_ROOT = Path(__file__).resolve().parents[2]
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 from services.database_service import DatabaseService
 from components.multimedia_results import render_multimedia_results
 from utils.formatters import format_time
@@ -51,16 +57,22 @@ def render_multimedia_search(db_service: DatabaseService):
 
             if search_btn:
                 suffix = f'.{uploaded_file.name.split(".")[-1]}'
-                with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
-                    if media_type == "Imagen":
-                        image = Image.open(uploaded_file)
-                        image.save(tmp_file.name)
-                    else:
-                        tmp_file.write(uploaded_file.getvalue())
-                    tmp_path = tmp_file.name
+                media_dir = Path(_ROOT) / "data" / ("audio" if media_type == "Audio" else "images")
+                potential_file = media_dir / uploaded_file.name
+                
+                if potential_file.exists():
+                    query_path = str(potential_file)
+                else:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+                        if media_type == "Imagen":
+                            image = Image.open(uploaded_file)
+                            image.save(tmp_file.name)
+                        else:
+                            tmp_file.write(uploaded_file.getvalue())
+                        query_path = tmp_file.name
 
                 with st.spinner(f"Buscando archivos similares..."):
-                    sql = f'SELECT * FROM {table_name} WHERE id <-> "{tmp_path}" LIMIT {k};'
+                    sql = f'SELECT * FROM {table_name} WHERE id <-> "{query_path}" LIMIT {k};'
                     results = db_service.execute_sql(sql)
 
                     if results and len(results) > 0:
@@ -74,7 +86,8 @@ def render_multimedia_search(db_service: DatabaseService):
 
                             st.session_state["multimedia_results"] = {
                                 "data": data,
-                                "query_image": tmp_path,
+                                "query_file": query_path,
+                                "media_type": media_type.lower(),
                                 "exec_time": exec_time,
                                 "reads": reads,
                                 "writes": writes
@@ -90,13 +103,18 @@ def render_multimedia_search(db_service: DatabaseService):
         if "multimedia_results" in st.session_state:
             results = st.session_state["multimedia_results"]
             data = results["data"]
+            query_file = results.get("query_file")
+            media_type = results.get("media_type", "imagen")
             exec_time = results["exec_time"]
             reads = results["reads"]
             writes = results["writes"]
 
             if data and len(data) > 0:
-                images_dir = Path(__file__).resolve().parents[2] / "data" / "images"
-                render_multimedia_results(data, images_dir=images_dir)
+                render_multimedia_results(
+                    data,
+                    query_file_path=query_file,
+                    media_type=media_type
+                )
 
                 st.markdown("---")
                 st.caption(f"**{len(data)} resultados** en {format_time(exec_time)} • Lecturas: {reads} • Escrituras: {writes}")

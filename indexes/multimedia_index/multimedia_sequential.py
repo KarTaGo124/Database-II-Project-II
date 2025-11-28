@@ -89,9 +89,19 @@ class MultimediaSequential(MultimediaIndexBase):
         if query_vec is None or len(self.histograms) == 0:
             return OperationResult(data=[], execution_time_ms=0, disk_reads=0, disk_writes=0)
 
+        query_basename = os.path.splitext(os.path.basename(query_filename))[0]
+
         scores = {}
         q_norm = np.linalg.norm(query_vec)
         for doc_id, doc_vec in self.histograms.items():
+            doc_id_str = str(doc_id).strip()
+            if hasattr(doc_id, 'decode'):
+                doc_id_str = doc_id.decode('utf-8').strip()
+            doc_basename = os.path.splitext(doc_id_str)[0]
+            
+            if doc_basename == query_basename:
+                continue
+                
             d_norm = self.norms.get(doc_id, 1.0)
             if q_norm > 0 and d_norm > 0:
                 score = float(np.dot(query_vec, doc_vec) / (q_norm * d_norm))

@@ -62,6 +62,12 @@ experiments/inverted_text/comparison_*.csv
 # Images
 data/images/*.jpg
 
+# Audios
+data/audio/*.mp3
+
+# Large CSV files
+data/datasets/raw_tracks.csv
+
 # Metadata Multimedia Index
 *.npy
 *.json

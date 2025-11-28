@@ -426,16 +426,17 @@ WHERE contenido @@ "tecnología inteligencia artificial" LIMIT 5;""", language="
 
             **Sintaxis:**
             ```sql
-            CREATE INDEX ON tabla (campo_clave) USING tipo_multimedia
+            CREATE INDEX ON tabla USING tipo_multimedia
             FEATURE "tipo_descriptor"
             DIRECTORY "ruta/archivos/"
-            PATTERN "{id}.extension";
+            PATTERN "{campo}";
             ```
 
             **IMPORTANTE:**
-            - `campo_clave` debe ser el campo KEY de la tabla (campo primario)
-            - El índice multimedia se crea sobre el campo clave, no sobre un campo de archivo
-            - El sistema auto-detecta si es imagen o audio según la extensión
+            - El índice multimedia se crea sobre la TABLA, no sobre un campo específico
+            - PATTERN determina qué campo usar para construir el nombre del archivo
+            - PATTERN puede referenciar cualquier campo de la tabla (no solo el KEY)
+            - El sistema auto-deteta si es imagen o audio según la extensión en el patrón
 
             **Tipos de índice multimedia:**
             - `MULTIMEDIA_SEQ` - Sequential scan con TF-IDF (más lento pero exacto)
@@ -531,13 +532,13 @@ PATTERN "{id}.mp3";""", language="sql")
 WHERE id <-> "15970.jpg" LIMIT 8;
 
 SELECT id, productDisplayName FROM Styles
-WHERE id <-> "query_image.jpg" LIMIT 10;
+WHERE id <-> "query_image.jpg" LIMIT 8;
 
 SELECT * FROM Products
 WHERE product_id <-> "uploaded_image.png" LIMIT 5;
 
 SELECT * FROM Songs
-WHERE id <-> "query_song.mp3" LIMIT 10;
+WHERE id <-> "query_song.mp3" LIMIT 8;
 
 SELECT title, artist FROM Music
 WHERE track_id <-> "uploaded_audio.wav" LIMIT 5;""", language="sql")
@@ -603,83 +604,34 @@ PATTERN "{id}.jpg";
 
 SELECT * FROM Styles WHERE id <-> "15970.jpg" LIMIT 8;""", language="sql")
 
-        with st.expander("🎵 Ejemplo Audio - Music Dataset"):
+        with st.expander("🎵 Ejemplo Audio - FMA Dataset"):
             st.markdown("""
-            Ejemplo completo de creación de tabla, carga de datos y búsquedas con audio.
-
-            **1. Crear tabla con datos de canciones:**
-            ```sql
-            CREATE TABLE Songs (
-                id INT KEY INDEX SEQUENTIAL,
-                title VARCHAR[200],
-                artist VARCHAR[100],
-                genre VARCHAR[50],
-                duration FLOAT
-            );
-            ```
-
-            **2. Cargar datos desde CSV:**
-            ```sql
-            LOAD DATA FROM FILE "data/datasets/songs.csv" INTO Songs;
-            ```
-
-            **3. Crear índice multimedia con descriptor de audio:**
-            ```sql
-            CREATE INDEX ON Songs USING MULTIMEDIA_INV
-            FEATURE "MFCC"
-            DIRECTORY "data/audio/"
-            PATTERN "{id}.mp3";
-            ```
-
-            **4. Realizar búsquedas KNN:**
-            ```sql
-            SELECT * FROM Songs
-            WHERE id <-> "query_song.mp3" LIMIT 10;
-            ```
-
-            **Nota:**
-            - El sistema extrae automáticamente descriptores MFCC del audio
-            - Solo usa el nombre del archivo (no la ruta completa)
-            - El DIRECTORY ya fue especificado en CREATE INDEX
+            Ejemplo con dataset real de música (Free Music Archive - FMA Medium).
             """)
-            st.code("""CREATE TABLE Songs (
-    id INT KEY INDEX SEQUENTIAL,
-    title VARCHAR[200],
-    artist VARCHAR[100],
+            st.code("""CREATE TABLE Tracks (
+    track_id INT KEY INDEX SEQUENTIAL,
+    filename VARCHAR[20],
+    album_title VARCHAR[200],
+    artist_name VARCHAR[100],
     genre VARCHAR[50],
-    duration FLOAT
+    track_title VARCHAR[200],
+    duration_sec FLOAT
 );
 
-LOAD DATA FROM FILE "data/datasets/songs.csv" INTO Songs;
+LOAD DATA FROM FILE "data/datasets/tracks_1000.csv" INTO Tracks;
 
-CREATE INDEX ON Songs USING MULTIMEDIA_INV
+CREATE INDEX ON Tracks USING MULTIMEDIA_INV
 FEATURE "MFCC"
 DIRECTORY "data/audio/"
-PATTERN "{id}.mp3";
+PATTERN "{filename}";
 
-SELECT * FROM Songs WHERE id <-> "query_song.mp3" LIMIT 10;""", language="sql")
+SELECT * FROM Tracks WHERE track_id <-> "000002.mp3" LIMIT 8;""", language="sql")
 
         st.info("""
-        💡 **Consejos para búsquedas multimedia:**
-        - **Operador especial:** Usa `<->` para búsquedas KNN: `WHERE campo <-> "archivo.ext"`
-        - **Índice requerido:** Crea índice MULTIMEDIA_SEQ o MULTIMEDIA_INV antes de buscar
-        - **LIMIT obligatorio:** Siempre especifica LIMIT k para definir cuántos resultados
-        - **Estructura de carpetas:**
-          - Imágenes: `data/images/` con archivos .jpg, .png, etc.
-          - Audio: `data/audio/` con archivos .mp3, .wav, etc.
-          - Pattern típico: `{id}.extension` donde {id} es la clave primaria
-        - **Descriptores para imágenes:**
-          - SIFT: Más robusto y preciso (recomendado)
-          - ORB: Más rápido pero menos preciso
-          - HOG: Para detección de objetos
-        - **Descriptores para audio:**
-          - MFCC: Características generales (recomendado)
-          - CHROMA: Análisis armónico y tonal
-          - SPECTRAL: Características espectrales
-        - **Performance:**
-          - MULTIMEDIA_SEQ: O(n) - escaneo completo, más lento pero exacto
-          - MULTIMEDIA_INV: O(log n) - índice invertido, más rápido
-        - **K recomendado:** Entre 5 y 20 para mejores resultados
-        - **Auto-scaling:** n_clusters se ajusta automáticamente (300-1000) según tamaño del dataset
+        💡 **Consejos:**
+        - Usa `<->` para búsquedas: `WHERE campo <-> "archivo.ext" LIMIT k`
+        - Tipos de índice: MULTIMEDIA_SEQ (exacto) o MULTIMEDIA_INV (rápido)
+        - K recomendado: 5-20 resultados
+        - Parámetros fijos: n_clusters=300, n_init=3, max_iter=100
         """)
 
