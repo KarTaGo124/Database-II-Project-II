@@ -74,7 +74,8 @@ def render_multimedia_search(db_service: DatabaseService):
 
                             st.session_state["multimedia_results"] = {
                                 "data": data,
-                                "query_image": tmp_path,
+                                "query_file": tmp_path,
+                                "media_type": media_type.lower(),
                                 "exec_time": exec_time,
                                 "reads": reads,
                                 "writes": writes
@@ -90,13 +91,18 @@ def render_multimedia_search(db_service: DatabaseService):
         if "multimedia_results" in st.session_state:
             results = st.session_state["multimedia_results"]
             data = results["data"]
+            query_file = results.get("query_file")
+            media_type = results.get("media_type", "imagen")
             exec_time = results["exec_time"]
             reads = results["reads"]
             writes = results["writes"]
 
             if data and len(data) > 0:
-                images_dir = Path(__file__).resolve().parents[2] / "data" / "images"
-                render_multimedia_results(data, images_dir=images_dir)
+                render_multimedia_results(
+                    data,
+                    query_file_path=query_file,
+                    media_type=media_type
+                )
 
                 st.markdown("---")
                 st.caption(f"**{len(data)} resultados** en {format_time(exec_time)} • Lecturas: {reads} • Escrituras: {writes}")

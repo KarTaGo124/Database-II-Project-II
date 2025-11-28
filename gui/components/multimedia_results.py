@@ -3,25 +3,37 @@ import pandas as pd
 from pathlib import Path
 from PIL import Image
 
-def render_multimedia_results(data, query_image_path: str = None, images_dir: Path = None):
+def render_multimedia_results(data, query_file_path: str = None, media_dir: Path = None, media_type: str = "image"):
     if not data or len(data) == 0:
         st.info("No se encontraron resultados")
         return
 
-    if images_dir is None:
-        images_dir = Path(__file__).resolve().parents[2] / "data" / "images"
+    # Auto-detect media type from query file if provided
+    if query_file_path and media_type == "image":
+        ext = Path(query_file_path).suffix.lower()
+        if ext in ['.mp3', '.wav', '.ogg', '.flac']:
+            media_type = "audio"
 
-    if query_image_path:
+    # Set default directory based on media type
+    if media_dir is None:
+        if media_type == "audio":
+            media_dir = Path(__file__).resolve().parents[2] / "data" / "audio"
+        else:
+            media_dir = Path(__file__).resolve().parents[2] / "data" / "images"
+
+    if query_file_path and media_type == "image":
         st.subheader("🖼️ Imagen de consulta")
         try:
-            query_img = Image.open(query_image_path)
+            query_img = Image.open(query_file_path)
             st.image(query_img, width=200)
         except Exception as e:
             st.error(f"No se pudo cargar la imagen de consulta: {e}")
 
-    st.subheader(f"📊 Resultados similares ({len(data)} imágenes)")
+    # Show results
+    result_label = "audios" if media_type == "audio" else "imágenes"
+    st.subheader(f"📊 Resultados similares ({len(data)} {result_label})")
 
-    cols_per_row = 4
+    cols_per_row = 4 if media_type == "image" else 2
     num_rows = (len(data) + cols_per_row - 1) // cols_per_row
 
     for row_idx in range(num_rows):
@@ -33,43 +45,70 @@ def render_multimedia_results(data, query_image_path: str = None, images_dir: Pa
 
             item = data[idx]
 
+            # Extract file identifier and similarity
             if isinstance(item, tuple):
-                image_id = item[0]
+                file_id = item[0]
                 similarity = item[1] if len(item) > 1 else None
             elif isinstance(item, dict):
-                image_id = item.get('id', None)
+                file_id = item.get('filename', item.get('id', None))
                 similarity = item.get('_multimedia_score', None)
             else:
-                image_id = getattr(item, 'id', None)
-                if image_id is None:
+                file_id = getattr(item, 'filename', getattr(item, 'id', None))
+                if file_id is None:
                     key_field = getattr(item, '_table', None)
                     if key_field and hasattr(key_field, 'key_field'):
-                        image_id = getattr(item, key_field.key_field, None)
+                        file_id = getattr(item, key_field.key_field, None)
                 similarity = getattr(item, '_multimedia_score', None)
 
-            if hasattr(image_id, 'decode'):
-                image_id = image_id.decode('utf-8').strip()
-            elif isinstance(image_id, bytes):
-                image_id = image_id.decode('utf-8').strip()
-            elif image_id is not None:
-                image_id = str(image_id).strip()
+            # Decode if bytes
+            if hasattr(file_id, 'decode'):
+                file_id = file_id.decode('utf-8').strip()
+            elif isinstance(file_id, bytes):
+                file_id = file_id.decode('utf-8').strip()
+            elif file_id is not None:
+                file_id = str(file_id).strip()
 
-            if not image_id:
+            if not file_id:
                 continue
 
-            image_path = images_dir / f"{image_id}.jpg"
-
-            with cols[col_idx]:
-                if image_path.exists():
-                    try:
-                        img = Image.open(image_path)
-                        st.image(img, width='stretch')
-                    except Exception as e:
-                        st.error(f"Error: {e}")
+            # Build file path
+            if media_type == "audio":
+                # For audio, file_id might already be the filename (e.g., "000002.mp3")
+                if file_id.endswith('.mp3') or file_id.endswith('.wav'):
+                    file_path = media_dir / file_id
                 else:
-                    st.warning(f"Imagen no encontrada")
+                    file_path = media_dir / f"{file_id}.mp3"
+            else:
+                # For images
+                if file_id.endswith('.jpg') or file_id.endswith('.png'):
+                    file_path = media_dir / file_id
+                else:
+                    file_path = media_dir / f"{file_id}.jpg"
 
-                st.caption(f"ID: {image_id}")
+            # Render result
+            with cols[col_idx]:
+                if media_type == "audio":
+                    if file_path.exists():
+                        try:
+                            st.audio(str(file_path))
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+                    else:
+                        st.warning(f"Audio no encontrado")
+
+                    st.caption(f"🎵 {file_path.stem}")
+                else:
+                    if file_path.exists():
+                        try:
+                            img = Image.open(file_path)
+                            st.image(img, width='stretch')
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+                    else:
+                        st.warning(f"Imagen no encontrada")
+
+                    st.caption(f"ID: {file_id}")
+
                 if similarity is not None:
                     st.caption(f"Similitud: {similarity:.4f}")
 
@@ -81,7 +120,7 @@ def is_multimedia_query(data):
     if isinstance(first_item, tuple) and len(first_item) >= 2:
         return True
 
-    if hasattr(first_item, 'id'):
+    if hasattr(first_item, 'id') or hasattr(first_item, 'filename'):
         return True
 
     return False
