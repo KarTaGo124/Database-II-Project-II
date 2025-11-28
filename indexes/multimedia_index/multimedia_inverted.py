@@ -4,9 +4,71 @@ import pickle
 import time
 from .multimedia_base import MultimediaIndexBase
 from ..core.performance_tracker import OperationResult
-import math
 import psutil
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
+
+_global_codebook = None
+_global_n_clusters = None
+_global_index = None
+
+
+def _init_hist_worker(codebook,
+                      index_dir,
+                      files_dir,
+                      field_name,
+                      feature_type,
+                      n_clusters,
+                      filename_pattern):
+
+    global _global_codebook, _global_n_clusters, _global_index
+    _global_codebook = codebook
+    _global_n_clusters = n_clusters
+
+    _global_index = MultimediaIndexBase(
+        index_dir=index_dir,
+        files_dir=files_dir,
+        field_name=field_name,
+        feature_type=feature_type,
+        n_clusters=n_clusters,
+        filename_pattern=filename_pattern
+    )
+
+
+def _build_histogram_worker_opt(args_tuple):
+    filename, doc_id = args_tuple
+
+    try:
+        global _global_codebook, _global_n_clusters, _global_index
+
+        if _global_codebook is None or _global_index is None:
+            return None
+
+        features = _global_index.extract_features(filename)
+        if features is None or len(features) == 0:
+            return None
+
+        n_clusters = _global_n_clusters
+        codebook = _global_codebook
+
+        histogram = np.zeros(n_clusters, dtype=np.float32)
+
+        distances = np.linalg.norm(
+            codebook[np.newaxis, :, :] - features[:, np.newaxis, :],
+            axis=2
+        )
+        closest_codewords = np.argmin(distances, axis=1)
+
+        unique, counts = np.unique(closest_codewords, return_counts=True)
+        histogram[unique] = counts
+
+        if histogram.sum() > 0:
+            histogram = histogram / histogram.sum()
+
+        return doc_id, histogram
+
+    except Exception:
+        return None
+
 
 class MultimediaInverted(MultimediaIndexBase):
 
@@ -23,7 +85,8 @@ class MultimediaInverted(MultimediaIndexBase):
         self.inverted_index = {}
         self.norms = {}
 
-        super().__init__(index_dir, files_dir, field_name, feature_type, n_clusters, filename_pattern=filename_pattern)
+        super().__init__(index_dir, files_dir, field_name, feature_type,
+                         n_clusters, filename_pattern=filename_pattern)
 
     def build(self, records, use_multiprocessing: bool = True, n_workers: int = None):
         start_time = time.time()
@@ -46,28 +109,68 @@ class MultimediaInverted(MultimediaIndexBase):
                     batch_size=codebook_batch_size
                 )
             else:
-                self.build_codebook(filenames=filenames, n_workers=1, batch_size=len(filenames))
+                self.build_codebook(
+                    filenames=filenames,
+                    n_workers=1,
+                    batch_size=len(filenames)
+                )
+
+        # Configuración de workers
+        if use_multiprocessing and n_workers is None:
+            n_workers = min(os.cpu_count() or 1, 4)
+        elif not use_multiprocessing:
+            n_workers = 1
 
         total_ram = psutil.virtual_memory().available
         ram_to_use = int(total_ram * 0.8)
         bytes_per_hist = self.n_clusters * 4
-        batch_size = max(1, ram_to_use // (bytes_per_hist * 2))  
+        batch_size = max(1, ram_to_use // (bytes_per_hist * 2))
 
         all_histograms = {}
-        
-        print(f"Construyendo histogramas para {len(filenames)} archivos en batches de {batch_size}...")
-        
+
+        print(f"Construyendo histogramas para {len(filenames)} archivos "
+              f"usando {n_workers} workers en batches de {batch_size}...")
+
         for batch_start in range(0, len(filenames), batch_size):
             batch_files = filenames[batch_start:batch_start + batch_size]
             batch_doc_ids = doc_ids[batch_start:batch_start + batch_size]
-            
-            print(f"Procesando batch de histogramas {batch_start//batch_size + 1}: {len(batch_files)} archivos")
 
-            for i, f in enumerate(batch_files):
-                hist = self.build_histogram(f, normalize=True)
-                if hist is not None:
-                    all_histograms[batch_doc_ids[i]] = hist
+            print(f"Procesando batch de histogramas "
+                  f"{batch_start // batch_size + 1}: {len(batch_files)} archivos")
+
+            if use_multiprocessing and n_workers > 1:
+                tasks = list(zip(batch_files, batch_doc_ids))
+
+                with ProcessPoolExecutor(
+                    max_workers=n_workers,
+                    initializer=_init_hist_worker,
+                    initargs=(
+                        self.codebook,
+                        self.index_dir,
+                        self.files_dir,
+                        self.field_name,
+                        self.feature_type,
+                        self.n_clusters,
+                        self.filename_pattern
+                    )
+                ) as executor:
+                    futures = [executor.submit(_build_histogram_worker_opt, t) for t in tasks]
+
+                    for future in as_completed(futures):
+                        result = future.result()
+                        if result is not None:
+                            doc_id, hist = result
+                            all_histograms[doc_id] = hist
+            else:
+                # Camino secuencial (sin multiprocessing)
+                for f, doc_id in zip(batch_files, batch_doc_ids):
+                    hist = self.build_histogram(f, normalize=True)
+                    if hist is not None:
+                        all_histograms[doc_id] = hist
+
+        # IDF sobre todos los histogramas
         self.calculate_idf(all_histograms)
+
         inverted_index = {i: [] for i in range(self.n_clusters)}
         norms = {}
 
@@ -90,7 +193,7 @@ class MultimediaInverted(MultimediaIndexBase):
             disk_reads=len(filenames),
             disk_writes=4
         )
-        
+
     def search(self, query_filename: str, top_k: int = 8) -> OperationResult:
         start_time = time.time()
         query_vec = self.get_tf_idf_vector(query_filename)
@@ -99,12 +202,12 @@ class MultimediaInverted(MultimediaIndexBase):
 
         scores = {}
         for codeword_id, q_weight in enumerate(query_vec):
-            if q_weight > 0:  
+            if q_weight > 0:
                 postings = self._read_postings_list(codeword_id)
                 for doc_id, tf in postings:
                     doc_weight = tf * self.idf.get(codeword_id, 0.0)
                     scores[doc_id] = scores.get(doc_id, 0.0) + q_weight * doc_weight
-        
+
         q_norm = np.linalg.norm(query_vec)
         for doc_id in scores:
             d_norm = self.norms.get(doc_id, 1.0)
@@ -117,8 +220,6 @@ class MultimediaInverted(MultimediaIndexBase):
         exec_time = (time.time() - start_time) * 1000
         return OperationResult(data=top_docs, execution_time_ms=exec_time, disk_reads=0, disk_writes=0)
 
-
-
     def _read_postings_list(self, codeword_id: int):
         if self.inverted_index and codeword_id in self.inverted_index:
             return self.inverted_index[codeword_id]
@@ -127,7 +228,6 @@ class MultimediaInverted(MultimediaIndexBase):
                 postings = pickle.load(f)
             return postings.get(codeword_id, [])
         return []
-
 
     def _write_postings_list(self, codeword_id: int, postings: list):
         if os.path.exists(self.postings_file):
@@ -176,6 +276,7 @@ class MultimediaInverted(MultimediaIndexBase):
         import json
         with open(self.metadata_file, 'w') as f:
             json.dump(metadata, f, indent=2)
+
     def _load_metadata(self):
         if os.path.exists(self.metadata_file):
             import json

@@ -4,9 +4,36 @@ import heapq
 import pickle
 import time
 import psutil
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from .multimedia_base import MultimediaIndexBase
 from ..core.performance_tracker import OperationResult
+
+#Optimizacion del build
+def _build_histogram_worker_opt(args_tuple):
+    filename, doc_id, codebook, n_clusters, base_index_proxy = args_tuple
+    
+    try:
+        features = base_index_proxy.extract_features(filename)
+        
+        if features is None or len(features) == 0:
+            return None
+
+        histogram = np.zeros(n_clusters, dtype=np.float32)
+
+        distances = np.linalg.norm(codebook[np.newaxis, :, :] - features[:, np.newaxis, :], axis=2)
+        closest_codewords = np.argmin(distances, axis=1)
+        
+        unique, counts = np.unique(closest_codewords, return_counts=True)
+        histogram[unique] = counts
+
+        if histogram.sum() > 0:
+            histogram = histogram / histogram.sum()
+
+        return doc_id, histogram
+    
+    except Exception as e:
+        return None
+
 
 class MultimediaSequential(MultimediaIndexBase):
 
@@ -24,6 +51,7 @@ class MultimediaSequential(MultimediaIndexBase):
         self.norms = {}
 
         super().__init__(index_dir, files_dir, field_name, feature_type, n_clusters, filename_pattern=filename_pattern)
+
 
     def build(self, records, use_multiprocessing: bool = True, n_workers: int = None):
         start_time = time.time()
@@ -48,6 +76,11 @@ class MultimediaSequential(MultimediaIndexBase):
             else:
                 self.build_codebook(filenames=filenames, n_workers=1, batch_size=len(filenames))
 
+        if use_multiprocessing and n_workers is None:
+            n_workers = min(os.cpu_count() or 1, 4) 
+        elif not use_multiprocessing:
+            n_workers = 1
+
         total_ram = psutil.virtual_memory().available
         ram_to_use = int(total_ram * 0.8)
         bytes_per_hist = self.n_clusters * 4
@@ -55,7 +88,13 @@ class MultimediaSequential(MultimediaIndexBase):
 
         all_histograms = {}
         
-        print(f"Construyendo histogramas para {len(filenames)} archivos en batches de {batch_size}...")
+        print(f"Construyendo histogramas para {len(filenames)} archivos usando {n_workers} workers en batches de {batch_size}...")
+        
+        base_index_proxy = self.__class__.__base__(
+             self.index_dir, self.files_dir, self.field_name, 
+             self.feature_type, self.n_clusters
+        )
+        base_index_proxy.codebook = self.codebook 
         
         for batch_start in range(0, len(filenames), batch_size):
             batch_files = filenames[batch_start:batch_start + batch_size]
@@ -63,10 +102,25 @@ class MultimediaSequential(MultimediaIndexBase):
             
             print(f"Procesando batch de histogramas {batch_start//batch_size + 1}: {len(batch_files)} archivos")
 
-            for i, f in enumerate(batch_files):
-                hist = self.build_histogram(f, normalize=True)
-                if hist is not None:
-                    all_histograms[batch_doc_ids[i]] = hist
+            tasks = [
+                (f, doc_id, self.codebook, self.n_clusters, base_index_proxy)
+                for f, doc_id in zip(batch_files, batch_doc_ids)
+            ]
+            
+            if use_multiprocessing and n_workers > 1:
+                with ProcessPoolExecutor(max_workers=n_workers) as executor:
+                    futures = [executor.submit(_build_histogram_worker_opt, task) for task in tasks]
+                    
+                    for future in as_completed(futures):
+                        result = future.result()
+                        if result is not None:
+                            doc_id, hist = result
+                            all_histograms[doc_id] = hist
+            else:
+                for i, f in enumerate(batch_files):
+                    hist = self.build_histogram(f, normalize=True)
+                    if hist is not None:
+                        all_histograms[batch_doc_ids[i]] = hist
 
         self.histograms = all_histograms
         self.calculate_idf(self.histograms)
