@@ -72,7 +72,10 @@ class MultimediaInverted(MultimediaIndexBase):
         norms = {}
 
         for doc_id, hist in all_histograms.items():
-            norm = np.linalg.norm(hist)
+            tf_idf = np.zeros(self.n_clusters, dtype=np.float32)
+            for i in range(self.n_clusters):
+                tf_idf[i] = hist[i] * self.idf.get(i, 0.0)
+            norm = np.linalg.norm(tf_idf)
             norms[doc_id] = norm
             for codeword_id, tf in enumerate(hist):
                 if tf > 0:
