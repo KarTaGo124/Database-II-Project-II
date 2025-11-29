@@ -80,8 +80,9 @@ class DatabaseManager:
 
         if index_type in ("MULTIMEDIA_SEQ", "MULTIMEDIA_INV"):
             if field_name is None:
-                if index_type in table_info["multimedia_indexes"]:
-                    raise ValueError(f"Multimedia index {index_type} already exists on table {table_name}")
+                if len(table_info["multimedia_indexes"]) > 0:
+                    existing_type = list(table_info["multimedia_indexes"].keys())[0]
+                    raise ValueError(f"Table {table_name} already has a multimedia index ({existing_type}). Only one multimedia index per table is allowed.")
 
                 multimedia_index = self._create_multimedia_index(table, index_type, feature_type=feature_type, multimedia_directory=multimedia_directory, multimedia_pattern=multimedia_pattern)
 
