@@ -10,7 +10,8 @@ def render_documentation():
         "🗂️ Índices",
         "🌍 Espaciales",
         "📝 Fulltext",
-        "🖼️ Multimedia"
+        "🖼️ Multimedia",
+        "🔧 Virtual Columns"
     ])
     with tabs[0]:
         st.markdown("### Definición de Datos (DDL)")
@@ -633,5 +634,126 @@ SELECT * FROM Tracks WHERE track_id <-> "000002.mp3" LIMIT 8;""", language="sql"
         - Tipos de índice: MULTIMEDIA_SEQ (exacto) o MULTIMEDIA_INV (rápido)
         - K recomendado: 5-20 resultados
         - Parámetros fijos: n_clusters=300, n_init=3, max_iter=100
+        """)
+
+    with tabs[8]:
+        st.markdown("### Columnas Virtuales Concatenadas")
+        st.markdown("""
+        Las columnas virtuales permiten concatenar múltiples campos de texto y crear índices fulltext sobre ellos.
+        
+        **Características:**
+        - Se calculan on-the-fly (no se almacenan físicamente)
+        - Permiten indexar la concatenación de múltiples campos
+        - Útiles para búsquedas fulltext en múltiples campos simultáneamente
+        - Persistidas en metadata
+        """)
+        
+        with st.expander("➕ ALTER TABLE ADD COLUMN - Crear Columna Virtual", expanded=True):
+            st.markdown("""
+            Crea una columna virtual que concatena múltiples campos existentes.
+            
+            **Sintaxis:**
+            ```sql
+            ALTER TABLE nombre_tabla 
+            ADD COLUMN nombre_columna AS CONCAT(campo1, campo2, ...);
+            ```
+            
+            **Parámetros:**
+            - `nombre_columna`: Nombre de la nueva columna virtual
+            - `campo1, campo2, ...`: Lista de campos a concatenar (deben existir en la tabla)
+            
+            **Características:**
+            - Los campos se concatenan con espacio como separador por defecto
+            - La columna virtual aparece en SELECT junto con campos normales
+            - No ocupa espacio en disco (se calcula dinámicamente)
+            - Puede usarse para crear índices INVERTED_TEXT
+            
+            **Proceso:**
+            1. Valida que todos los campos de origen existan
+            2. Guarda la definición en metadata
+            3. La columna está disponible inmediatamente para consultas
+            """)
+            st.code("""ALTER TABLE Noticias 
+ADD COLUMN contenido_categoria AS CONCAT(contenido, categoria);
+
+ALTER TABLE Products 
+ADD COLUMN full_description AS CONCAT(name, brand, description);
+
+ALTER TABLE Articles 
+ADD COLUMN searchable_text AS CONCAT(title, subtitle, body);""", language="sql")
+        
+        with st.expander("❌ ALTER TABLE DROP COLUMN - Eliminar Columna Virtual"):
+            st.markdown("""
+            Elimina una columna virtual previamente creada.
+            
+            **Sintaxis:**
+            ```sql
+            ALTER TABLE nombre_tabla DROP COLUMN nombre_columna;
+            ```
+            
+            **Notas:**
+            - Solo puede eliminar columnas virtuales (no campos físicos)
+            - Si hay índice INVERTED_TEXT en la columna, debe eliminarse primero
+            - Libera la metadata asociada
+            """)
+            st.code("""ALTER TABLE Noticias DROP COLUMN contenido_categoria;
+ALTER TABLE Products DROP COLUMN full_description;""", language="sql")
+        
+        with st.expander("🔍 Crear Índice en Columna Virtual"):
+            st.markdown("""
+            Una vez creada la columna virtual, puedes crear un índice INVERTED_TEXT sobre ella.
+            
+            **Sintaxis:**
+            ```sql
+            CREATE INDEX ON tabla (columna_virtual) USING INVERTED_TEXT;
+            ```
+            
+            **Proceso:**
+            1. El sistema detecta que es columna virtual
+            2. Durante la construcción del índice, concatena los campos de origen
+            3. Tokeniza y construye el índice invertido
+            4. Las búsquedas usan `@@` como en campos normales
+            
+            **Ventajas:**
+            - Búsquedas simultáneas en múltiples campos
+            - Un solo índice en lugar de varios
+            - TF-IDF calculado sobre todo el texto concatenado
+            """)
+            st.code("""CREATE INDEX ON Noticias (contenido_categoria) USING INVERTED_TEXT;
+
+SELECT * FROM Noticias 
+WHERE contenido_categoria @@ "economía inflación" LIMIT 5;""", language="sql")
+        
+        with st.expander("📊 Flujo Completo - Ejemplo con Noticias"):
+            st.markdown("""
+            Ejemplo completo desde creación de tabla hasta búsquedas en columnas virtuales.
+            """)
+            st.code("""CREATE TABLE Noticias (
+    id INT KEY INDEX ISAM,
+    url VARCHAR[200],
+    contenido VARCHAR[5000],
+    categoria VARCHAR[50]
+);
+
+LOAD DATA FROM FILE "data/datasets/news_es-2.csv" INTO Noticias;
+
+ALTER TABLE Noticias ADD COLUMN contenido_categoria AS CONCAT(contenido, categoria);
+
+CREATE INDEX ON Noticias (contenido_categoria) USING INVERTED_TEXT;
+
+SELECT * FROM Noticias 
+WHERE contenido_categoria @@ "tecnología inteligencia artificial" LIMIT 10;
+
+SELECT url FROM Noticias 
+WHERE contenido_categoria @@ "economía política" LIMIT 5;""", language="sql")
+        
+        st.info("""
+        💡 **Consejos para columnas virtuales:**
+        - **Separador:** Los campos se concatenan con espacio ` ` por defecto
+        - **Orden:** Importante al concatenar - el orden afecta el TF-IDF
+        - **Índices:** Solo INVERTED_TEXT soportado actualmente
+        - **SELECT:** Las columnas virtuales se muestran automáticamente en SELECT *
+        - **Workflow:** CREATE TABLE → LOAD DATA → ALTER TABLE ADD COLUMN → CREATE INDEX → consulta
+        - **Eliminar:** DROP INDEX primero, luego DROP COLUMN si es necesario
         """)
 
