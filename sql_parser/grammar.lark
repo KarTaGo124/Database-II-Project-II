@@ -5,6 +5,7 @@ start: stmt (";" stmt)* ";"?
      | create_index
      | drop_table
      | drop_index
+     | alter_table
      | select_stmt
      | insert_stmt
      | delete_stmt
@@ -33,6 +34,9 @@ create_index: "CREATE" "INDEX" "ON" IDENT ["(" IDENT ")"] "USING" index_kind ["L
 drop_table: "DROP" "TABLE" IDENT
 
 drop_index: "DROP" "INDEX" IDENT "ON" IDENT
+
+alter_table: "ALTER" "TABLE" IDENT "ADD" "COLUMN" IDENT "AS" "CONCAT" "(" col_list ")"
+           | "ALTER" "TABLE" IDENT "DROP" "COLUMN" IDENT
 
 select_all: "*"
 select_cols: col_list

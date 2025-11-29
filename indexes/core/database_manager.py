@@ -1,5 +1,6 @@
 import os
 import json
+from typing import List
 from .record import Table, Record, IndexRecord
 from .performance_tracker import OperationResult
 
@@ -79,8 +80,9 @@ class DatabaseManager:
 
         if index_type in ("MULTIMEDIA_SEQ", "MULTIMEDIA_INV"):
             if field_name is None:
-                if index_type in table_info["multimedia_indexes"]:
-                    raise ValueError(f"Multimedia index {index_type} already exists on table {table_name}")
+                if len(table_info["multimedia_indexes"]) > 0:
+                    existing_type = list(table_info["multimedia_indexes"].keys())[0]
+                    raise ValueError(f"Table {table_name} already has a multimedia index ({existing_type}). Only one multimedia index per table is allowed.")
 
                 multimedia_index = self._create_multimedia_index(table, index_type, feature_type=feature_type, multimedia_directory=multimedia_directory, multimedia_pattern=multimedia_pattern)
 
@@ -133,14 +135,17 @@ class DatabaseManager:
         if field_name == table.key_field:
             raise ValueError(f"Cannot create secondary index on primary key field '{field_name}'")
 
-        field_info = self._get_field_info(table, field_name)
-        if not field_info:
-            raise ValueError(f"Field {field_name} not found in table {table_name}")
+        is_virtual = field_name in table_info.get("virtual_columns", {})
+        
+        if not is_virtual:
+            field_info = self._get_field_info(table, field_name)
+            if not field_info:
+                raise ValueError(f"Field {field_name} not found in table {table_name}")
 
         if field_name in table_info["secondary_indexes"]:
             raise ValueError(f"Index on {field_name} already exists")
 
-        secondary_index = self._create_secondary_index(table, field_name, index_type, language=language, feature_type=feature_type, multimedia_directory=multimedia_directory, multimedia_pattern=multimedia_pattern)
+        secondary_index = self._create_secondary_index(table, field_name, index_type, language=language, feature_type=feature_type, multimedia_directory=multimedia_directory, multimedia_pattern=multimedia_pattern, virtual_column_info=table_info.get("virtual_columns", {}).get(field_name))
 
         table_info["secondary_indexes"][field_name] = {
             "index": secondary_index,
@@ -148,7 +153,8 @@ class DatabaseManager:
             "language": language if index_type == "INVERTED_TEXT" else None,
             "feature_type": feature_type if index_type in ("MULTIMEDIA_SEQ", "MULTIMEDIA_INV") else None,
             "multimedia_directory": multimedia_directory if index_type in ("MULTIMEDIA_SEQ", "MULTIMEDIA_INV") else None,
-            "multimedia_pattern": multimedia_pattern if index_type in ("MULTIMEDIA_SEQ", "MULTIMEDIA_INV") else None
+            "multimedia_pattern": multimedia_pattern if index_type in ("MULTIMEDIA_SEQ", "MULTIMEDIA_INV") else None,
+            "is_virtual": is_virtual
         }
 
         total_reads = 0
@@ -1119,8 +1125,11 @@ class DatabaseManager:
 
         raise NotImplementedError(f"Primary index type {index_type} not implemented yet")
 
-    def _create_secondary_index(self, table: Table, field_name: str, index_type: str, language: str = "spanish", feature_type: str = "SIFT", multimedia_directory: str = None, multimedia_pattern: str = None):
-        field_type, field_size = self._get_field_info(table, field_name)
+    def _create_secondary_index(self, table: Table, field_name: str, index_type: str, language: str = "spanish", feature_type: str = "SIFT", multimedia_directory: str = None, multimedia_pattern: str = None, virtual_column_info=None):
+        if virtual_column_info:
+            field_type, field_size = None, None
+        else:
+            field_type, field_size = self._get_field_info(table, field_name)
 
         if index_type == "BTREE":
             secondary_dir = os.path.join(self.base_dir, table.table_name, f"secondary_btree_{field_name}")
@@ -1157,7 +1166,7 @@ class DatabaseManager:
             return RTreeSecondaryIndex(field_name, filename, dimension=dimension)
         
         elif index_type == "INVERTED_TEXT":
-            if field_type not in ["VARCHAR", "TEXT", "STRING", "CHAR"]:
+            if not virtual_column_info and field_type not in ["VARCHAR", "TEXT", "STRING", "CHAR"]:
                 raise ValueError(f"INVERTED_TEXT index requires text field, got {field_type}")
 
             secondary_dir = os.path.join(self.base_dir, table.table_name, f"secondary_inverted_text_{field_name}")
@@ -1167,7 +1176,8 @@ class DatabaseManager:
             return InvertedTextIndex(
                 index_dir=secondary_dir,
                 field_name=field_name,
-                language=language
+                language=language,
+                virtual_column_info=virtual_column_info
             )
 
         elif index_type == "MULTIMEDIA_SEQ":
@@ -1375,6 +1385,9 @@ class DatabaseManager:
                     for idx_type, info in table_info.get("multimedia_indexes", {}).items()
                 }
             }
+            
+            if "virtual_columns" in table_info:
+                metadata[table_name]["virtual_columns"] = table_info["virtual_columns"]
 
         with open(self.metadata_file, 'w') as f:
             json.dump(metadata, f, indent=2)
@@ -1466,8 +1479,64 @@ class DatabaseManager:
 
                     if hasattr(primary_index, 'warm_up'):
                         primary_index.warm_up()
+                    
+                    if "virtual_columns" in table_meta:
+                        table_info["virtual_columns"] = table_meta["virtual_columns"]
+                    
                 except Exception:
                     continue
         except Exception:
             pass
+
+    def add_virtual_column(self, table_name: str, column_name: str, source_fields: List[str]):
+        if table_name not in self.tables:
+            raise ValueError(f"Table {table_name} does not exist")
+        
+        table_info = self.tables[table_name]
+        table = table_info["table"]
+        
+        for field in source_fields:
+            if not self._get_field_info(table, field):
+                raise ValueError(f"Field {field} not found in table {table_name}")
+        
+        if "virtual_columns" not in table_info:
+            table_info["virtual_columns"] = {}
+        
+        if column_name in table_info["virtual_columns"]:
+            raise ValueError(f"Virtual column {column_name} already exists")
+        
+        table_info["virtual_columns"][column_name] = {
+            "type": "CONCAT",
+            "source_fields": source_fields,
+            "separator": " "
+        }
+        
+        self._save_metadata()
+    
+    def drop_virtual_column(self, table_name: str, column_name: str):
+        if table_name not in self.tables:
+            raise ValueError(f"Table {table_name} does not exist")
+        
+        table_info = self.tables[table_name]
+        
+        if "virtual_columns" not in table_info or column_name not in table_info["virtual_columns"]:
+            raise ValueError(f"Virtual column {column_name} not found")
+        
+        if column_name in table_info.get("secondary_indexes", {}):
+            raise ValueError(f"Cannot drop virtual column {column_name}: it has an index. Drop the index first.")
+        
+        del table_info["virtual_columns"][column_name]
+        self._save_metadata()
+    
+    def get_virtual_column_value(self, record, virtual_column_info):
+        parts = []
+        for field in virtual_column_info["source_fields"]:
+            value = getattr(record, field, None)
+            if value:
+                if isinstance(value, bytes):
+                    value = value.decode('utf-8').rstrip('\x00').strip()
+                parts.append(str(value))
+        
+        separator = virtual_column_info.get("separator", " ")
+        return separator.join(parts)
 

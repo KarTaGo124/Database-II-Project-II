@@ -19,9 +19,9 @@ class SPIMIBuilder:
         self.merge_pass_counter = 0
         os.makedirs(self.temp_dir, exist_ok=True)
 
-    def build_index(self, documents: Iterator, field_name: str, output_file: str):
+    def build_index(self, documents: Iterator, field_name: str, output_file: str, virtual_column_info=None):
         try:
-            block_files = self._process_documents_in_blocks(documents, field_name)
+            block_files = self._process_documents_in_blocks(documents, field_name, virtual_column_info)
             if not block_files:
                 return None
 
@@ -30,14 +30,24 @@ class SPIMIBuilder:
         finally:
             self._cleanup_temp_files()
 
-    def _process_documents_in_blocks(self, documents: Iterator, field_name: str):
+    def _process_documents_in_blocks(self, documents: Iterator, field_name: str, virtual_column_info=None):
         block_data = {}
         block_files = []
         current_size_in_bytes = 0
         block_size_bytes = self.block_size_mb * 1024 * 1024
 
         for doc_id, doc in documents:
-            text = getattr(doc, field_name, None)
+            if virtual_column_info:
+                text_parts = []
+                for src_field in virtual_column_info.get("source_fields", []):
+                    field_value = getattr(doc, src_field, None)
+                    if field_value:
+                        if isinstance(field_value, bytes):
+                            field_value = field_value.decode('utf-8', errors='ignore').rstrip('\x00').strip()
+                        text_parts.append(str(field_value))
+                text = virtual_column_info.get("separator", " ").join(text_parts)
+            else:
+                text = getattr(doc, field_name, None)
 
             if not text:
                 continue

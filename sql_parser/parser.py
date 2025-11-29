@@ -3,6 +3,7 @@ from .plan_types import (
     CreateTablePlan, LoadDataPlan,
     SelectPlan, InsertPlan, DeletePlan,
     CreateIndexPlan, DropTablePlan, DropIndexPlan,
+    AlterTableAddColumnPlan, AlterTableDropColumnPlan,
     PredicateEq, PredicateBetween, PredicateInPointRadius, PredicateKNN, PredicateFulltext, PredicateMultimedia,
 )
 
@@ -248,6 +249,16 @@ class _T(Transformer):
         field_name = _tok2str(items[0])
         table_name = _tok2str(items[1])
         return DropIndexPlan(field_name=field_name, table=table_name)
+
+    def alter_table(self, items):
+        table = _tok2str(items[0])
+        if len(items) == 3:
+            column_name = _tok2str(items[1])
+            source_fields = items[2]
+            return AlterTableAddColumnPlan(table=table, column_name=column_name, source_fields=source_fields)
+        else:
+            column_name = _tok2str(items[1])
+            return AlterTableDropColumnPlan(table=table, column_name=column_name)
 
     def start(self, items):
         return items
