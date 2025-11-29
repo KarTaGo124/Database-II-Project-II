@@ -41,13 +41,17 @@ class MultimediaSequential(MultimediaIndexBase):
         self.method_dir = os.path.join(index_dir, "sequential")
         os.makedirs(self.method_dir, exist_ok=True)
 
-        self.histograms_file = os.path.join(self.method_dir, "histograms.dat")
+        self.histograms_dir = os.path.join(self.method_dir, "histograms")
+        os.makedirs(self.histograms_dir, exist_ok=True)
+
         self.norms_file = os.path.join(self.method_dir, "norms.dat")
         self.idf_file = os.path.join(self.method_dir, "idf.dat")
+        self.doc_list_file = os.path.join(self.method_dir, "doc_list.dat")
         self.metadata_file = os.path.join(self.method_dir, "metadata.json")
 
         self.histograms = {}
         self.norms = {}
+        self.doc_ids = []
 
         super().__init__(index_dir, files_dir, field_name, feature_type, n_clusters, filename_pattern=filename_pattern)
 
@@ -138,15 +142,26 @@ class MultimediaSequential(MultimediaIndexBase):
 
     def search(self, query_filename: str, top_k: int = 8) -> OperationResult:
         start_time = time.time()
+        disk_reads = 0
+        
+        if not self.doc_ids:
+            self._load_if_exists()
+        
         query_vec = self.get_tf_idf_vector(query_filename)
-        if query_vec is None or len(self.histograms) == 0:
+        if query_vec is None or len(self.doc_ids) == 0:
             return OperationResult(data=[], execution_time_ms=0, disk_reads=0, disk_writes=0)
 
         query_basename = os.path.splitext(os.path.basename(query_filename))[0]
 
         scores = {}
         q_norm = np.linalg.norm(query_vec)
-        for doc_id, doc_vec in self.histograms.items():
+        
+        for doc_id in self.doc_ids:
+            doc_vec = self._read_histogram(doc_id)
+            if doc_vec is None:
+                continue
+            disk_reads += 1
+            
             doc_id_str = str(doc_id).strip()
             if hasattr(doc_id, 'decode'):
                 doc_id_str = doc_id.decode('utf-8').strip()
@@ -165,11 +180,25 @@ class MultimediaSequential(MultimediaIndexBase):
         top_docs = heapq.nlargest(top_k, scores.items(), key=lambda x: x[1])
         exec_time = (time.time() - start_time) * 1000
 
-        return OperationResult(data=top_docs, execution_time_ms=exec_time, disk_reads=0, disk_writes=0)
+        return OperationResult(data=top_docs, execution_time_ms=exec_time, disk_reads=disk_reads, disk_writes=0)
+
+    def _read_histogram(self, doc_id):
+        hist_file = os.path.join(self.histograms_dir, f"doc_{doc_id}.npy")
+        if os.path.exists(hist_file):
+            return np.load(hist_file)
+        return None
+    
+    def _write_histogram(self, doc_id, histogram):
+        hist_file = os.path.join(self.histograms_dir, f"doc_{doc_id}.npy")
+        np.save(hist_file, histogram)
 
     def _persist(self):
-        with open(self.histograms_file, 'wb') as f:
-            pickle.dump(self.histograms, f)
+        for doc_id, histogram in self.histograms.items():
+            self._write_histogram(doc_id, histogram)
+        
+        with open(self.doc_list_file, 'wb') as f:
+            pickle.dump(list(self.histograms.keys()), f)
+        
         with open(self.norms_file, 'wb') as f:
             pickle.dump(self.norms, f)
         with open(self.idf_file, 'wb') as f:
@@ -177,9 +206,10 @@ class MultimediaSequential(MultimediaIndexBase):
         self._save_metadata()
 
     def _load_if_exists(self):
-        if os.path.exists(self.histograms_file):
-            with open(self.histograms_file, 'rb') as f:
-                self.histograms = pickle.load(f)
+        if os.path.exists(self.doc_list_file):
+            with open(self.doc_list_file, 'rb') as f:
+                self.doc_ids = pickle.load(f)
+        
         if os.path.exists(self.norms_file):
             with open(self.norms_file, 'rb') as f:
                 self.norms = pickle.load(f)
@@ -197,7 +227,7 @@ class MultimediaSequential(MultimediaIndexBase):
             'n_clusters': self.n_clusters,
             'feature_type': self.feature_type,
             'field_name': self.field_name,
-            'histograms_file': self.histograms_file,
+            'histograms_dir': self.histograms_dir,
             'norms_file': self.norms_file,
             'idf_file': self.idf_file
         }
