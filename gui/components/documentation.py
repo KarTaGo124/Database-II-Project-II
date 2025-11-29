@@ -313,286 +313,149 @@ WHERE ubicacion NEAREST ((-34.6037, -58.3816), 10);""", language="sql")
     with tabs[6]:
         st.markdown("### Búsqueda Fulltext (Índice Invertido)")
         st.markdown("""
-        Las consultas fulltext requieren:
-        1. Campo tipo `VARCHAR[n]` o `CHAR`
-        2. Índice `INVERTED_TEXT` en ese campo
+        Búsqueda por similitud de texto usando TF-IDF sobre campos `VARCHAR[n]` o `CHAR`.
+
         **Características:**
-        - Búsqueda por similitud de texto usando TF-IDF
-        - Preprocesamiento en español (stopwords, stemming)
-        - Ranking por score de relevancia (cosine similarity)
-        - Índice estático (se crea una vez, no se actualiza con INSERT/DELETE)
+        - Preprocesamiento: stopwords, stemming (español/inglés)
+        - Ranking por cosine similarity (0.0 a 1.0)
+        - Índice estático (no se actualiza con INSERT/DELETE)
         """)
-        with st.expander("🔍 Búsqueda Fulltext (WHERE @@)", expanded=True):
+
+        with st.expander("🔨 CREATE INDEX - Crear Índice Fulltext", expanded=True):
             st.markdown("""
-            Encuentra documentos relevantes para una consulta de texto.
             **Sintaxis:**
             ```sql
-            SELECT * FROM tabla
-            WHERE campo_texto @@ "palabras clave de búsqueda";
+            CREATE INDEX ON tabla (campo_texto) USING INVERTED_TEXT;
+            CREATE INDEX ON tabla (campo_texto) USING INVERTED_TEXT LANGUAGE "idioma";
             ```
+
             **Parámetros:**
-            - `campo_texto`: Campo VARCHAR/CHAR con índice INVERTED_TEXT
-            - `"consulta"`: Texto de búsqueda entre comillas dobles
-            **Características:**
-            - Retorna documentos ordenados por relevancia (score de 0.0 a 1.0)
-            - Sin threshold mínimo (puede retornar matches con score bajo)
-            - Usa preprocesamiento: lowercase, remove punctuation, stopwords, stemming
-            - Sin LIMIT: retorna todos los resultados
-            - Con LIMIT N: retorna los top N resultados más relevantes
-            **Algoritmo:**
-            - Preprocesa la consulta (tokeniza, remueve stopwords, stemming)
-            - Calcula TF-IDF para cada término
-            - Retorna documentos ordenados por cosine similarity
+            - `LANGUAGE`: Opcional, soporta "spanish" (default) o "english"
             """)
-            st.code("""SELECT * FROM Noticias
-WHERE contenido @@ "economía inflación precios";
-SELECT url, contenido FROM Noticias
-WHERE contenido @@ "tecnología inteligencia artificial" LIMIT 5;
-SELECT * FROM Noticias
-WHERE contenido @@ "política elecciones gobierno" LIMIT 20;""", language="sql")
-        with st.expander("📊 Flujo Completo - Ejemplo con Noticias"):
+            st.code("""CREATE INDEX ON Noticias (contenido) USING INVERTED_TEXT;
+CREATE INDEX ON News (content) USING INVERTED_TEXT LANGUAGE "english";""", language="sql")
+
+        with st.expander("🗑️ DROP INDEX - Eliminar Índice Fulltext"):
             st.markdown("""
-            Ejemplo completo de creación de tabla, carga de datos y búsquedas fulltext.
-            **1. Crear tabla con campo de texto:**
+            **Sintaxis:**
             ```sql
-            CREATE TABLE Noticias (
-                id INT KEY INDEX ISAM,
-                url VARCHAR[200],
-                contenido VARCHAR[5000],
-                categoria VARCHAR[50]
-            );
+            DROP INDEX campo_texto ON tabla;
             ```
-            **2. Cargar datos desde CSV:**
-            ```sql
-            LOAD DATA FROM FILE "data/datasets/news_es.csv" INTO Noticias;
-            ```
-            **3. Crear índice invertido:**
-            ```sql
-            CREATE INDEX ON Noticias (contenido) USING INVERTED_TEXT;
-            CREATE INDEX ON Noticias (contenido) USING INVERTED_TEXT LANGUAGE "spanish";
-            CREATE INDEX ON News (content) USING INVERTED_TEXT LANGUAGE "english";
-            ```
-            **4. Realizar búsquedas fulltext:**
-            ```sql
-            SELECT categoria, contenido FROM Noticias
-            WHERE contenido @@ "economía inflación" LIMIT 5;
-            ```
-            **Nota:** El campo `_text_score` se agrega automáticamente a los resultados con el score de relevancia.
             """)
-            st.code("""
-CREATE TABLE Noticias (
+            st.code("""DROP INDEX contenido ON Noticias;
+DROP INDEX content ON News;""", language="sql")
+
+        with st.expander("🔍 Búsqueda Fulltext (WHERE @@)"):
+            st.markdown("""
+            **Sintaxis:**
+            ```sql
+            SELECT * FROM tabla WHERE campo_texto @@ "palabras clave" LIMIT k;
+            ```
+
+            **Características:**
+            - Operador `@@` para búsqueda fulltext
+            - Retorna resultados ordenados por relevancia
+            - Campo `_text_score` agregado automáticamente (0.0 a 1.0)
+            - LIMIT opcional (sin LIMIT retorna todos los matches)
+            """)
+            st.code("""SELECT * FROM Noticias WHERE contenido @@ "economía inflación" LIMIT 5;
+SELECT url FROM Noticias WHERE contenido @@ "tecnología" LIMIT 10;""", language="sql")
+
+        with st.expander("📊 Ejemplo Completo"):
+            st.code("""CREATE TABLE Noticias (
     id INT KEY INDEX ISAM,
     url VARCHAR[200],
     contenido VARCHAR[5000],
     categoria VARCHAR[50]
-); 
+);
+
 LOAD DATA FROM FILE "data/datasets/news_es-2.csv" INTO Noticias;
+
 CREATE INDEX ON Noticias (contenido) USING INVERTED_TEXT;
-                    
-SELECT * FROM Noticias WHERE contenido @@ "economía" LIMIT 3;
-SELECT categoria, contenido FROM Noticias
-WHERE contenido @@ "tecnología inteligencia artificial" LIMIT 5;""", language="sql")
-        st.info("""
-        💡 **Consejos para búsquedas fulltext:**
-        - **Operador especial:** Usa `@@` para búsquedas fulltext: `WHERE campo @@ "consulta"`
-        - **Quotes dobles:** Usa comillas dobles para la consulta de texto
-        - **LIMIT:** Opcional. Sin LIMIT retorna todos los resultados, con LIMIT N retorna los top N
-        - **Score:** Los resultados incluyen `_text_score` (0.0 a 1.0) indicando relevancia
-        - **Sin threshold:** Retorna todos los matches, incluso con score bajo
-        - **Idioma:** Soporta múltiples idiomas (spanish, english, etc.)
-          - Default: spanish
-          - Especificar con: `LANGUAGE "idioma"` al crear el índice
-        - **Índice estático:** Se crea una vez con los datos existentes, no se actualiza automáticamente
-        """)
+
+SELECT * FROM Noticias WHERE contenido @@ "economía" LIMIT 3;""", language="sql")
 
     with tabs[7]:
         st.markdown("### Búsqueda por Similitud Multimedia (KNN)")
         st.markdown("""
-        Las consultas multimedia requieren:
-        1. Archivos multimedia (imágenes o audio) almacenados en una carpeta conocida
-        2. Índice `MULTIMEDIA_SEQ` o `MULTIMEDIA_INV` en el campo ID
-        3. Descriptores extraídos automáticamente según el tipo de archivo
+        Búsqueda KNN sobre descriptores visuales o acústicos usando Bag of Visual/Acoustic Words con TF-IDF.
 
         **Características:**
-        - Búsqueda KNN (K-Nearest Neighbors) sobre descriptores visuales o acústicos
-        - Bag of Visual/Acoustic Words con TF-IDF
-        - Dos métodos: Sequential (scan completo) e Inverted (indexado)
-        - Retorna top-K archivos más similares
-        - Auto-detección del tipo de archivo (imagen o audio)
+        - Auto-detección de tipo (imagen o audio) según extensión
+        - Dos métodos: MULTIMEDIA_SEQ (exacto) o MULTIMEDIA_INV (rápido)
+        - Solo un índice multimedia por tabla
+        - Índice sobre tabla completa (no sobre campo específico)
         """)
 
-        with st.expander("🎨 CREATE INDEX - Índice Multimedia", expanded=True):
+        with st.expander("🔨 CREATE INDEX - Índice Multimedia", expanded=True):
             st.markdown("""
-            Crea un índice para búsqueda por similitud de imágenes o audio.
-
             **Sintaxis:**
             ```sql
             CREATE INDEX ON tabla USING tipo_multimedia
-            FEATURE "tipo_descriptor"
+            FEATURE "descriptor"
             DIRECTORY "ruta/archivos/"
             PATTERN "{campo}";
             ```
 
-            **IMPORTANTE:**
-            - El índice multimedia se crea sobre la TABLA, no sobre un campo específico
-            - PATTERN determina qué campo usar para construir el nombre del archivo
-            - PATTERN puede referenciar cualquier campo de la tabla (no solo el KEY)
-            - El sistema auto-deteta si es imagen o audio según la extensión en el patrón
-
-            **Tipos de índice multimedia:**
-            - `MULTIMEDIA_SEQ` - Sequential scan con TF-IDF (más lento pero exacto)
-            - `MULTIMEDIA_INV` - Inverted index con SPIMI (más rápido)
-
-            **Descriptores soportados:**
-
-            *Para imágenes:*
-            - `SIFT` - Scale-Invariant Feature Transform (recomendado para imágenes)
-            - `ORB` - Oriented FAST and Rotated BRIEF (rápido)
-            - `HOG` - Histogram of Oriented Gradients (para detección)
-
-            *Para audio:*
-            - `MFCC` - Mel-Frequency Cepstral Coefficients (13 coeficientes)
-            - `CHROMA` - Chroma features para análisis armónico (12 features)
-            - `SPECTRAL` - Spectral features (centroid, rolloff, zero-crossing rate)
-
             **Parámetros:**
-            - `DIRECTORY` - Carpeta donde están los archivos multimedia (relativa al proyecto)
-            - `PATTERN` - Patrón de nombre de archivo con placeholder {id}
+            - `tipo_multimedia`: MULTIMEDIA_SEQ o MULTIMEDIA_INV
+            - `FEATURE`: Descriptor a usar (ver lista abajo)
+            - `DIRECTORY`: Carpeta con archivos multimedia (relativa al proyecto)
+            - `PATTERN`: Patrón con placeholders `{campo}` para construir nombre de archivo
 
-            **Proceso:**
-            1. Extrae descriptores del tipo especificado de cada archivo
-            2. Construye codebook con K-means (clustering)
-            3. Auto-detecta n_clusters según tamaño del dataset (300-1000)
-            4. Genera histogramas TF-IDF para cada archivo
-            5. Construye índice (sequential o inverted)
+            **Descriptores de imagen:**
+            - `SIFT` - Scale-Invariant Feature Transform (recomendado)
+            - `ORB` - Oriented FAST and Rotated BRIEF (rápido)
+            - `HOG` - Histogram of Oriented Gradients
+
+            **Descriptores de audio:**
+            - `MFCC` - Mel-Frequency Cepstral Coefficients
+            - `CHROMA` - Análisis armónico
+            - `SPECTRAL` - Características espectrales
             """)
-            st.code("""
-CREATE TABLE Styles (
-    id INT KEY INDEX SEQUENTIAL,
-    ...
-);
-
-CREATE INDEX ON Styles USING MULTIMEDIA_SEQ
+            st.code("""CREATE INDEX ON Styles USING MULTIMEDIA_SEQ
 FEATURE "SIFT"
 DIRECTORY "data/images/"
 PATTERN "{id}.jpg";
 
-CREATE TABLE Songs (
-    id INT KEY INDEX SEQUENTIAL,
-    ...
-);
-
-CREATE INDEX ON Songs USING MULTIMEDIA_INV
+CREATE INDEX ON Tracks USING MULTIMEDIA_INV
 FEATURE "MFCC"
 DIRECTORY "data/audio/"
-PATTERN "{id}.mp3";""", language="sql")
+PATTERN "{filename}";""", language="sql")
 
-        with st.expander("🔍 Búsqueda KNN (WHERE <->)", expanded=True):
+        with st.expander("🗑️ DROP INDEX - Eliminar Índice Multimedia"):
             st.markdown("""
-            Encuentra los K archivos multimedia más similares a un archivo de consulta.
-
             **Sintaxis:**
             ```sql
-            SELECT * FROM tabla
-            WHERE campo_id <-> "archivo.ext"
-            LIMIT k;
+            DROP INDEX MULTIMEDIA ON tabla;
             ```
 
-            **Operador especial:**
-            - `<->` - Operador de similitud multimedia (Diamond operator)
+            **Nota:** Solo puede haber un índice multimedia por tabla.
+            """)
+            st.code("""DROP INDEX MULTIMEDIA ON Styles;
+DROP INDEX MULTIMEDIA ON Tracks;""", language="sql")
 
-            **Parámetros:**
-            - `archivo.ext` - Nombre del archivo de consulta (sin ruta, el directorio ya fue especificado en CREATE INDEX)
-            - `LIMIT k` - Número de resultados similares a retornar
-
-            **IMPORTANTE:**
-            - Solo usa el nombre del archivo (ej: `"15970.jpg"`), NO la ruta completa
-            - El sistema usa el DIRECTORY especificado en CREATE INDEX automáticamente
+        with st.expander("🔍 Búsqueda KNN (WHERE <->)"):
+            st.markdown("""
+            **Sintaxis:**
+            ```sql
+            SELECT * FROM tabla WHERE campo <-> "archivo.ext" LIMIT k;
+            ```
 
             **Características:**
-            - Retorna top-K archivos más similares
-            - Ordenadas por score de similitud (cosine similarity)
-            - Auto-detecta tipo de archivo y usa el descriptor correspondiente
-            - Métrica: cosine similarity entre histogramas TF-IDF
-
-            **Casos de uso:**
-
-            *Para imágenes:*
-            - Búsqueda de productos similares por imagen
-            - Recomendación visual
-            - Detección de duplicados
-            - Búsqueda inversa de imágenes
-
-            *Para audio:*
-            - Búsqueda de canciones similares
-            - Recomendación musical por similitud acústica
-            - Detección de covers o versiones
-            - Identificación de género musical
+            - Operador `<->` para búsqueda multimedia (Diamond operator)
+            - Usa solo nombre de archivo (sin ruta, usa DIRECTORY del índice)
+            - Retorna top-K resultados ordenados por cosine similarity
+            - K recomendado: 5-20 resultados
             """)
-            st.code("""SELECT * FROM Styles
-WHERE id <-> "15970.jpg" LIMIT 8;
+            st.code("""SELECT * FROM Styles WHERE id <-> "15970.jpg" LIMIT 8;
+SELECT * FROM Tracks WHERE track_id <-> "000002.mp3" LIMIT 5;""", language="sql")
 
-SELECT id, productDisplayName FROM Styles
-WHERE id <-> "query_image.jpg" LIMIT 8;
-
-SELECT * FROM Products
-WHERE product_id <-> "uploaded_image.png" LIMIT 5;
-
-SELECT * FROM Songs
-WHERE id <-> "query_song.mp3" LIMIT 8;
-
-SELECT title, artist FROM Music
-WHERE track_id <-> "uploaded_audio.wav" LIMIT 5;""", language="sql")
-
-        with st.expander("📊 Ejemplo Imágenes - Fashion Dataset"):
-            st.markdown("""
-            Ejemplo completo de creación de tabla, carga de datos y búsquedas con imágenes.
-
-            **1. Crear tabla con datos de productos:**
-            ```sql
-            CREATE TABLE Styles (
-                id INT KEY INDEX SEQUENTIAL,
-                gender VARCHAR[20],
-                masterCategory VARCHAR[50],
-                articleType VARCHAR[50],
-                productDisplayName VARCHAR[200]
-            );
-            ```
-
-            **2. Cargar datos desde CSV:**
-            ```sql
-            LOAD DATA FROM FILE "data/datasets/styles_1000.csv" INTO Styles;
-            ```
-
-            **3. Crear índice multimedia con descriptor de imágenes:**
-            ```sql
-            CREATE INDEX ON Styles USING MULTIMEDIA_SEQ
-            FEATURE "SIFT"
-            DIRECTORY "data/images/"
-            PATTERN "{id}.jpg";
-            ```
-
-            **4. Realizar búsquedas KNN:**
-            ```sql
-            SELECT * FROM Styles
-            WHERE id <-> "15970.jpg" LIMIT 8;
-            ```
-
-            **Nota:**
-            - El sistema extrae automáticamente descriptores SIFT de las imágenes
-            - Solo usa el nombre del archivo (no la ruta completa)
-            - El DIRECTORY ya fue especificado en CREATE INDEX
-            """)
+        with st.expander("📊 Ejemplo Imágenes"):
             st.code("""CREATE TABLE Styles (
     id INT KEY INDEX SEQUENTIAL,
     gender VARCHAR[20],
     masterCategory VARCHAR[50],
-    subCategory VARCHAR[50],
-    articleType VARCHAR[50],
-    baseColour VARCHAR[50],
-    season VARCHAR[20],
-    year INT,
-    usage VARCHAR[20],
     productDisplayName VARCHAR[200]
 );
 
@@ -605,18 +468,12 @@ PATTERN "{id}.jpg";
 
 SELECT * FROM Styles WHERE id <-> "15970.jpg" LIMIT 8;""", language="sql")
 
-        with st.expander("🎵 Ejemplo Audio - FMA Dataset"):
-            st.markdown("""
-            Ejemplo con dataset real de música (Free Music Archive - FMA Medium).
-            """)
+        with st.expander("🎵 Ejemplo Audio"):
             st.code("""CREATE TABLE Tracks (
     track_id INT KEY INDEX SEQUENTIAL,
     filename VARCHAR[20],
-    album_title VARCHAR[200],
     artist_name VARCHAR[100],
-    genre VARCHAR[50],
-    track_title VARCHAR[200],
-    duration_sec FLOAT
+    track_title VARCHAR[200]
 );
 
 LOAD DATA FROM FILE "data/datasets/tracks_1000.csv" INTO Tracks;
@@ -628,106 +485,57 @@ PATTERN "{filename}";
 
 SELECT * FROM Tracks WHERE track_id <-> "000002.mp3" LIMIT 8;""", language="sql")
 
-        st.info("""
-        💡 **Consejos:**
-        - Usa `<->` para búsquedas: `WHERE campo <-> "archivo.ext" LIMIT k`
-        - Tipos de índice: MULTIMEDIA_SEQ (exacto) o MULTIMEDIA_INV (rápido)
-        - K recomendado: 5-20 resultados
-        - Parámetros fijos: n_clusters=300, n_init=3, max_iter=100
-        """)
-
     with tabs[8]:
         st.markdown("### Columnas Virtuales Concatenadas")
         st.markdown("""
-        Las columnas virtuales permiten concatenar múltiples campos de texto y crear índices fulltext sobre ellos.
-        
+        Columnas calculadas on-the-fly que concatenan múltiples campos para búsquedas fulltext.
+
         **Características:**
-        - Se calculan on-the-fly (no se almacenan físicamente)
-        - Permiten indexar la concatenación de múltiples campos
-        - Útiles para búsquedas fulltext en múltiples campos simultáneamente
-        - Persistidas en metadata
+        - No se almacenan físicamente (se calculan dinámicamente)
+        - Permiten índices INVERTED_TEXT sobre concatenación de campos
+        - Separador: espacio por defecto
         """)
-        
-        with st.expander("➕ ALTER TABLE ADD COLUMN - Crear Columna Virtual", expanded=True):
+
+        with st.expander("➕ ADD COLUMN - Crear Columna Virtual", expanded=True):
             st.markdown("""
-            Crea una columna virtual que concatena múltiples campos existentes.
-            
             **Sintaxis:**
             ```sql
-            ALTER TABLE nombre_tabla 
-            ADD COLUMN nombre_columna AS CONCAT(campo1, campo2, ...);
+            ALTER TABLE tabla ADD COLUMN nombre_columna AS CONCAT(campo1, campo2, ...);
             ```
-            
-            **Parámetros:**
-            - `nombre_columna`: Nombre de la nueva columna virtual
-            - `campo1, campo2, ...`: Lista de campos a concatenar (deben existir en la tabla)
-            
-            **Características:**
-            - Los campos se concatenan con espacio como separador por defecto
-            - La columna virtual aparece en SELECT junto con campos normales
-            - No ocupa espacio en disco (se calcula dinámicamente)
-            - Puede usarse para crear índices INVERTED_TEXT
-            
-            **Proceso:**
-            1. Valida que todos los campos de origen existan
-            2. Guarda la definición en metadata
-            3. La columna está disponible inmediatamente para consultas
-            """)
-            st.code("""ALTER TABLE Noticias 
-ADD COLUMN contenido_categoria AS CONCAT(contenido, categoria);
 
-ALTER TABLE Products 
-ADD COLUMN full_description AS CONCAT(name, brand, description);
-
-ALTER TABLE Articles 
-ADD COLUMN searchable_text AS CONCAT(title, subtitle, body);""", language="sql")
-        
-        with st.expander("❌ ALTER TABLE DROP COLUMN - Eliminar Columna Virtual"):
-            st.markdown("""
-            Elimina una columna virtual previamente creada.
-            
-            **Sintaxis:**
-            ```sql
-            ALTER TABLE nombre_tabla DROP COLUMN nombre_columna;
-            ```
-            
             **Notas:**
-            - Solo puede eliminar columnas virtuales (no campos físicos)
-            - Si hay índice INVERTED_TEXT en la columna, debe eliminarse primero
-            - Libera la metadata asociada
+            - Todos los campos deben existir en la tabla
+            - Aparece en SELECT * automáticamente
             """)
-            st.code("""ALTER TABLE Noticias DROP COLUMN contenido_categoria;
-ALTER TABLE Products DROP COLUMN full_description;""", language="sql")
-        
+            st.code("""ALTER TABLE Noticias ADD COLUMN contenido_categoria AS CONCAT(contenido, categoria);
+ALTER TABLE Products ADD COLUMN full_description AS CONCAT(name, brand, description);""", language="sql")
+
+        with st.expander("❌ DROP COLUMN - Eliminar Columna Virtual"):
+            st.markdown("""
+            **Sintaxis:**
+            ```sql
+            ALTER TABLE tabla DROP COLUMN nombre_columna;
+            ```
+
+            **Nota:** Si tiene índice INVERTED_TEXT, eliminarlo primero.
+            """)
+            st.code("""DROP INDEX contenido_categoria ON Noticias;
+ALTER TABLE Noticias DROP COLUMN contenido_categoria;""", language="sql")
+
         with st.expander("🔍 Crear Índice en Columna Virtual"):
             st.markdown("""
-            Una vez creada la columna virtual, puedes crear un índice INVERTED_TEXT sobre ella.
-            
             **Sintaxis:**
             ```sql
             CREATE INDEX ON tabla (columna_virtual) USING INVERTED_TEXT;
             ```
-            
-            **Proceso:**
-            1. El sistema detecta que es columna virtual
-            2. Durante la construcción del índice, concatena los campos de origen
-            3. Tokeniza y construye el índice invertido
-            4. Las búsquedas usan `@@` como en campos normales
-            
-            **Ventajas:**
-            - Búsquedas simultáneas en múltiples campos
-            - Un solo índice en lugar de varios
-            - TF-IDF calculado sobre todo el texto concatenado
+
+            **Ventaja:** Un solo índice para búsquedas en múltiples campos.
             """)
             st.code("""CREATE INDEX ON Noticias (contenido_categoria) USING INVERTED_TEXT;
 
-SELECT * FROM Noticias 
-WHERE contenido_categoria @@ "economía inflación" LIMIT 5;""", language="sql")
-        
-        with st.expander("📊 Flujo Completo - Ejemplo con Noticias"):
-            st.markdown("""
-            Ejemplo completo desde creación de tabla hasta búsquedas en columnas virtuales.
-            """)
+SELECT * FROM Noticias WHERE contenido_categoria @@ "economía inflación" LIMIT 5;""", language="sql")
+
+        with st.expander("📊 Ejemplo Completo"):
             st.code("""CREATE TABLE Noticias (
     id INT KEY INDEX ISAM,
     url VARCHAR[200],
@@ -741,19 +549,5 @@ ALTER TABLE Noticias ADD COLUMN contenido_categoria AS CONCAT(contenido, categor
 
 CREATE INDEX ON Noticias (contenido_categoria) USING INVERTED_TEXT;
 
-SELECT * FROM Noticias 
-WHERE contenido_categoria @@ "tecnología inteligencia artificial" LIMIT 10;
-
-SELECT url FROM Noticias 
-WHERE contenido_categoria @@ "economía política" LIMIT 5;""", language="sql")
-        
-        st.info("""
-        💡 **Consejos para columnas virtuales:**
-        - **Separador:** Los campos se concatenan con espacio ` ` por defecto
-        - **Orden:** Importante al concatenar - el orden afecta el TF-IDF
-        - **Índices:** Solo INVERTED_TEXT soportado actualmente
-        - **SELECT:** Las columnas virtuales se muestran automáticamente en SELECT *
-        - **Workflow:** CREATE TABLE → LOAD DATA → ALTER TABLE ADD COLUMN → CREATE INDEX → consulta
-        - **Eliminar:** DROP INDEX primero, luego DROP COLUMN si es necesario
-        """)
+SELECT * FROM Noticias WHERE contenido_categoria @@ "tecnología" LIMIT 10;""", language="sql")
 
