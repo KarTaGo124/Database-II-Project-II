@@ -77,7 +77,9 @@ class MultimediaInverted(MultimediaIndexBase):
         self.method_dir = os.path.join(index_dir, "inverted")
         os.makedirs(self.method_dir, exist_ok=True)
 
-        self.postings_file = os.path.join(self.method_dir, "postings.dat")
+        self.postings_dir = os.path.join(self.method_dir, "postings")
+        os.makedirs(self.postings_dir, exist_ok=True)
+        
         self.norms_file = os.path.join(self.method_dir, "norms.dat")
         self.idf_file = os.path.join(self.method_dir, "idf.dat")
         self.metadata_file = os.path.join(self.method_dir, "metadata.json")
@@ -196,6 +198,8 @@ class MultimediaInverted(MultimediaIndexBase):
 
     def search(self, query_filename: str, top_k: int = 8) -> OperationResult:
         start_time = time.time()
+        disk_reads = 0
+        
         query_vec = self.get_tf_idf_vector(query_filename)
         if query_vec is None:
             return OperationResult(data=[], execution_time_ms=0, disk_reads=0, disk_writes=0)
@@ -206,6 +210,7 @@ class MultimediaInverted(MultimediaIndexBase):
         for codeword_id, q_weight in enumerate(query_vec):
             if q_weight > 0:
                 postings = self._read_postings_list(codeword_id)
+                disk_reads += 1
                 for doc_id, tf in postings:
                     doc_id_str = str(doc_id).strip()
                     if hasattr(doc_id, 'decode'):
@@ -228,30 +233,25 @@ class MultimediaInverted(MultimediaIndexBase):
 
         top_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:top_k]
         exec_time = (time.time() - start_time) * 1000
-        return OperationResult(data=top_docs, execution_time_ms=exec_time, disk_reads=0, disk_writes=0)
+        return OperationResult(data=top_docs, execution_time_ms=exec_time, disk_reads=disk_reads, disk_writes=0)
 
     def _read_postings_list(self, codeword_id: int):
-        if self.inverted_index and codeword_id in self.inverted_index:
-            return self.inverted_index[codeword_id]
-        if os.path.exists(self.postings_file):
-            with open(self.postings_file, 'rb') as f:
-                postings = pickle.load(f)
-            return postings.get(codeword_id, [])
+        posting_file = os.path.join(self.postings_dir, f"codeword_{codeword_id}.dat")
+        if os.path.exists(posting_file):
+            with open(posting_file, 'rb') as f:
+                return pickle.load(f)
         return []
 
     def _write_postings_list(self, codeword_id: int, postings: list):
-        if os.path.exists(self.postings_file):
-            with open(self.postings_file, 'rb') as f:
-                all_postings = pickle.load(f)
-        else:
-            all_postings = {}
-        all_postings[codeword_id] = postings
-        with open(self.postings_file, 'wb') as f:
-            pickle.dump(all_postings, f)
+        posting_file = os.path.join(self.postings_dir, f"codeword_{codeword_id}.dat")
+        with open(posting_file, 'wb') as f:
+            pickle.dump(postings, f)
 
     def _persist(self):
-        with open(self.postings_file, 'wb') as f:
-            pickle.dump(self.inverted_index, f)
+        for codeword_id, postings in self.inverted_index.items():
+            if postings:
+                self._write_postings_list(codeword_id, postings)
+        
         with open(self.norms_file, 'wb') as f:
             pickle.dump(self.norms, f)
         with open(self.idf_file, 'wb') as f:
@@ -259,9 +259,6 @@ class MultimediaInverted(MultimediaIndexBase):
         self._save_metadata()
 
     def _load_if_exists(self):
-        if os.path.exists(self.postings_file):
-            with open(self.postings_file, 'rb') as f:
-                self.inverted_index = pickle.load(f)
         if os.path.exists(self.norms_file):
             with open(self.norms_file, 'rb') as f:
                 self.norms = pickle.load(f)
@@ -279,7 +276,7 @@ class MultimediaInverted(MultimediaIndexBase):
             'n_clusters': self.n_clusters,
             'feature_type': self.feature_type,
             'field_name': self.field_name,
-            'postings_file': self.postings_file,
+            'postings_dir': self.postings_dir,
             'norms_file': self.norms_file,
             'idf_file': self.idf_file
         }
