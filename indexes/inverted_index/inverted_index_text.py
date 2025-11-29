@@ -13,10 +13,11 @@ from ..core.record import Record
 
 class InvertedTextIndex:
 
-    def __init__(self, index_dir: str, field_name: str, language: str = 'spanish'):
+    def __init__(self, index_dir: str, field_name: str, language: str = 'spanish', virtual_column_info=None):
         self.index_dir = index_dir
         self.field_name = field_name
         self.language = language
+        self.virtual_column_info = virtual_column_info
 
         self.postings_file = os.path.join(index_dir, "postings.dat")
         self.vocabulary_file = os.path.join(index_dir, "vocabulary.dat")
@@ -62,7 +63,7 @@ class InvertedTextIndex:
                     yield (doc_id, record)
 
         output_file = os.path.join(self.index_dir, "postings.dat")
-        spimi.build_index(doc_generator(), self.field_name, output_file)
+        spimi.build_index(doc_generator(), self.field_name, output_file, self.virtual_column_info)
 
     def _calculate_tf_idf(self):
         if not os.path.exists(self.postings_file):
