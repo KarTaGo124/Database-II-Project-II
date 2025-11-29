@@ -98,3 +98,14 @@ class DropTablePlan:
 class DropIndexPlan:
     field_name: str
     table: str
+
+@dataclass
+class AlterTableAddColumnPlan:
+    table: str
+    column_name: str
+    source_fields: List[str]
+
+@dataclass
+class AlterTableDropColumnPlan:
+    table: str
+    column_name: str

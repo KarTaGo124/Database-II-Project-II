@@ -3,6 +3,7 @@ from typing import Dict, Any, List, Tuple, Optional
 from .plan_types import (
     CreateTablePlan, LoadDataPlan, SelectPlan, InsertPlan, DeletePlan,
     CreateIndexPlan, DropTablePlan, DropIndexPlan,
+    AlterTableAddColumnPlan, AlterTableDropColumnPlan,
     ColumnDef, ColumnType, PredicateEq, PredicateBetween, PredicateInPointRadius, PredicateKNN, PredicateFulltext, PredicateMultimedia
 )
 from indexes.core.record import Table, Record
@@ -31,6 +32,10 @@ class Executor:
             return self._drop_table(plan)
         elif isinstance(plan, DropIndexPlan):
             return self._drop_index(plan)
+        elif isinstance(plan, AlterTableAddColumnPlan):
+            return self._alter_table_add_column(plan)
+        elif isinstance(plan, AlterTableDropColumnPlan):
+            return self._alter_table_drop_column(plan)
         else:
             raise NotImplementedError(f"Plan no soportado: {type(plan)}")
 
@@ -296,22 +301,36 @@ class Executor:
                 return ftype
         return None
 
-    def _project_records(self, records: List[Record], columns: Optional[List[str]]) -> List[Dict[str, Any]]:
+    def _project_records(self, records: List[Record], columns: Optional[List[str]], table_name: str = None) -> List[Dict[str, Any]]:
         if not records:
             return []
+        
+        virtual_columns = {}
+        if table_name and table_name in self.db.tables:
+            virtual_columns = self.db.tables[table_name].get("virtual_columns", {})
+        
         out = []
         names = [n for (n, _, _) in records[0].value_type_size]
         pick = names if (columns is None) else columns
+        
         for r in records:
             obj = {}
             for c in pick:
-                val = getattr(r, c, None)
-                if isinstance(val, bytes):
-                    try:
-                        val = val.decode("utf-8").rstrip("\x00").strip()
-                    except UnicodeDecodeError:
-                        val = val.decode("utf-8", errors="replace").rstrip("\x00").strip()
+                if c in virtual_columns:
+                    val = self.db.get_virtual_column_value(r, virtual_columns[c])
+                else:
+                    val = getattr(r, c, None)
+                    if isinstance(val, bytes):
+                        try:
+                            val = val.decode("utf-8").rstrip("\x00").strip()
+                        except UnicodeDecodeError:
+                            val = val.decode("utf-8", errors="replace").rstrip("\x00").strip()
                 obj[c] = val
+            
+            for vcol_name, vcol_info in virtual_columns.items():
+                if columns is None or vcol_name in columns:
+                    if vcol_name not in obj:
+                        obj[vcol_name] = self.db.get_virtual_column_value(r, vcol_info)
             
             if hasattr(r, '_text_score'):
                 obj['_text_score'] = r._text_score
@@ -327,7 +346,7 @@ class Executor:
 
         if where is None:
             res = self.db.scan_all(table)
-            projected_data = self._project_records(res.data, plan.columns)
+            projected_data = self._project_records(res.data, plan.columns, table)
             return OperationResult(projected_data, res.execution_time_ms, res.disk_reads, res.disk_writes, res.rebuild_triggered, res.operation_breakdown)
 
         if isinstance(where, PredicateEq):
@@ -336,7 +355,7 @@ class Executor:
 
             res = self.db.search(table, val, field_name=col)
             data_list = res.data if isinstance(res.data, list) else ([res.data] if res.data else [])
-            projected_data = self._project_records(data_list, plan.columns)
+            projected_data = self._project_records(data_list, plan.columns, table)
             return OperationResult(projected_data, res.execution_time_ms, res.disk_reads, res.disk_writes, res.rebuild_triggered, res.operation_breakdown)
 
         if isinstance(where, PredicateBetween):
@@ -344,7 +363,7 @@ class Executor:
             lo = where.lo
             hi = where.hi
             res = self.db.range_search(table, lo, hi, field_name=col)
-            projected_data = self._project_records(res.data, plan.columns)
+            projected_data = self._project_records(res.data, plan.columns, table)
             return OperationResult(projected_data, res.execution_time_ms, res.disk_reads, res.disk_writes, res.rebuild_triggered, res.operation_breakdown)
 
         if isinstance(where, (PredicateInPointRadius, PredicateKNN)):
@@ -357,7 +376,7 @@ class Executor:
                 # point, k
                 res = self.db.range_search(plan.table, list(where.point), where.k, field_name=col, spatial_type="knn")
 
-            projected_data = self._project_records(res.data, plan.columns)
+            projected_data = self._project_records(res.data, plan.columns, plan.table)
             return OperationResult(projected_data, res.execution_time_ms, res.disk_reads, res.disk_writes, res.rebuild_triggered, res.operation_breakdown)
 
         if isinstance(where, PredicateFulltext):
@@ -381,7 +400,7 @@ class Executor:
 
             data_list = res.data if isinstance(res.data, list) else []
             
-            projected_data = self._project_records(data_list, plan.columns)
+            projected_data = self._project_records(data_list, plan.columns, plan.table)
             return OperationResult(projected_data, res.execution_time_ms, res.disk_reads, res.disk_writes, res.rebuild_triggered, res.operation_breakdown)
 
         if isinstance(where, PredicateMultimedia):
@@ -410,7 +429,7 @@ class Executor:
 
             data_list = res.data if isinstance(res.data, list) else []
 
-            projected_data = self._project_records(data_list, plan.columns)
+            projected_data = self._project_records(data_list, plan.columns, plan.table)
             return OperationResult(projected_data, res.execution_time_ms, res.disk_reads, res.disk_writes, res.rebuild_triggered, res.operation_breakdown)
 
         raise NotImplementedError("Predicado WHERE no soportado")
@@ -555,5 +574,19 @@ class Executor:
 
         except ValueError as e:
             return OperationResult(f"ERROR: {e}", 0, 0, 0)
+        except Exception as e:
+            return OperationResult(f"ERROR: {e}", 0, 0, 0)
+
+    def _alter_table_add_column(self, plan: AlterTableAddColumnPlan):
+        try:
+            self.db.add_virtual_column(plan.table, plan.column_name, plan.source_fields)
+            return OperationResult(f"OK: Columna virtual '{plan.column_name}' agregada a tabla '{plan.table}'", 0, 0, 0)
+        except Exception as e:
+            return OperationResult(f"ERROR: {e}", 0, 0, 0)
+
+    def _alter_table_drop_column(self, plan: AlterTableDropColumnPlan):
+        try:
+            self.db.drop_virtual_column(plan.table, plan.column_name)
+            return OperationResult(f"OK: Columna virtual '{plan.column_name}' eliminada de tabla '{plan.table}'", 0, 0, 0)
         except Exception as e:
             return OperationResult(f"ERROR: {e}", 0, 0, 0)
