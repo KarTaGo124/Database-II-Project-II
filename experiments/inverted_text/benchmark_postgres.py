@@ -34,7 +34,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data" / "datasets" / "amazon_reviews"
 
 # Dataset sizes to test
-DATASET_SIZES = [1000]
+DATASET_SIZES = [1000, 2000, 4000, 8000, 16000, 32000, 64000]
 
 # Test queries - diverse set covering different scenarios
 TEST_QUERIES = [
