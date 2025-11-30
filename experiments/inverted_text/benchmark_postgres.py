@@ -34,7 +34,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = PROJECT_ROOT / "data" / "datasets" / "amazon_reviews"
 
 # Dataset sizes to test
-DATASET_SIZES = [1000, 2000, 4000, 8000, 16000, 32000, 64000]
+DATASET_SIZES = [1000]
 
 # Test queries - diverse set covering different scenarios
 TEST_QUERIES = [
@@ -115,7 +115,7 @@ def run_search(conn, query: str) -> Tuple[float, float, float, List]:
     tsquery_str = ' | '.join(query_terms)  # OR operator in PostgreSQL
 
     sql = """
-        SELECT id, ts_rank(to_tsvector('english', review),
+        SELECT id, ts_rank_cd(to_tsvector('english', review),
                            to_tsquery('english', %s)) as score
         FROM Reviews
         WHERE to_tsvector('english', review) @@ to_tsquery('english', %s)
@@ -129,7 +129,7 @@ def run_search(conn, query: str) -> Tuple[float, float, float, List]:
     # Run with EXPLAIN ANALYZE to get detailed timing
     explain_sql = f"""
         EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)
-        SELECT id, ts_rank(to_tsvector('english', review),
+        SELECT id, ts_rank_cd(to_tsvector('english', review),
                            to_tsquery('english', %s)) as score
         FROM Reviews
         WHERE to_tsvector('english', review) @@ to_tsquery('english', %s)

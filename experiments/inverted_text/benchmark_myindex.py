@@ -37,7 +37,7 @@ DATA_DIR = PROJECT_ROOT / "data" / "datasets" / "amazon_reviews"
 BENCHMARK_DB_DIR = PROJECT_ROOT / "experiments" / "inverted_text" / "benchmark_db"
 
 # Dataset sizes to test
-DATASET_SIZES = [1000, 2000, 4000, 8000, 16000, 32000, 64000]
+DATASET_SIZES = [1000, 64000]
 
 # Test queries - diverse set covering different scenarios
 TEST_QUERIES = [
