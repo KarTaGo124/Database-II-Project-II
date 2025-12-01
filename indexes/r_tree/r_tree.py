@@ -110,14 +110,22 @@ class RTreeSecondaryIndex:
             max_coords = [c + radius for c in coords]
             bbox = tuple(min_coords + max_coords)
 
-            candidate_pks = list(self.idx.intersection(bbox))
+            candidate_items = list(self.idx.intersection(bbox, objects=True))
             self.performance.track_read()
 
-            return self.performance.end_operation(candidate_pks)
+            precise_pks = []
+
+            for item in candidate_items:
+                real_coords = list(item.bbox)[:self.dimension]
+                distance = self._euclidean_distance(coords, real_coords)
+                if distance <= radius:
+                    precise_pks.append(item.id)
+            
+            return self.performance.end_operation(precise_pks)
 
         except Exception:
             return self.performance.end_operation([])
-    
+
     def delete(self, coords, primary_key=None) -> OperationResult:
         self.performance.start_operation()
 
