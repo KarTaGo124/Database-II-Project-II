@@ -41,8 +41,24 @@ README.md
 *.tmp
 *.bak
 
-# Resultados de experimentos opcionales (descomenta si no quieres copiarlos)
-# experiments/results/
+# DATOS PESADOS - No copiar al contenedor (se montan con volumes)
+data/audio/**
+data/images/**
+experiments/**
+*.csv
+*.json
+*.npy
+*.pkl
+*.dat
+*.wav
+*.mp3
+*.jpg
+*.jpeg
+*.png
+
+# Mantener solo estructura de carpetas necesaria
+!data/datasets/.gitkeep
+!experiments/.gitkeep
 
 # Docker
 Dockerfile

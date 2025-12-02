@@ -1,12 +1,14 @@
 lark
 rtree
 streamlit
+pandas
 nltk
 scikit-learn
-opencv-python
+opencv-python-headless
 librosa
 numpy
 scipy
 pillow
 psutil
 psycopg2-binary
+matplotlib
